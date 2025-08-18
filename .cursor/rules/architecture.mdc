@@ -1,0 +1,314 @@
+---
+alwaysApply: true
+---
+
+# Ars0n Framework v2 - System Architecture
+
+## Overview
+
+The Ars0n Framework v2 implements a production-ready microservices architecture designed for automated bug bounty hunting and security reconnaissance. The system follows a containerized approach where each security tool, service, and component operates in isolation while maintaining efficient communication channels.
+
+## Core Philosophy
+
+**"Earn While You Learn"** - The architecture supports both practical bug bounty hunting and educational workflows, ensuring that users understand the methodology behind each reconnaissance step.
+
+## High-Level Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Backend API   │    │   AI Service    │
+│   (React CRA)   │◄──►│   (Go/Mux)      │◄──►│   (FastAPI)     │
+│   Port: 3000    │    │   Port: 8443    │    │   Port: 8000    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │   PostgreSQL    │
+                    │   Database      │
+                    │   Port: 5432    │
+                    └─────────────────┘
+                                 │
+                                 │
+         ┌───────────────────────┼───────────────────────┐
+         │                       │                       │
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Security Tool  │    │  Security Tool  │    │  Security Tool  │
+│  Container 1    │    │  Container 2    │    │  Container N    │
+│  (Amass, etc.)  │    │  (Nuclei, etc.) │    │  (Httpx, etc.)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+## Service Architecture
+
+### Frontend Service (React)
+- **Technology**: React (Create React App) with Bootstrap UI
+- **Port**: 3000
+- **Key Features**:
+  - Three core workflow interfaces (Company, Wildcard, URL)
+  - Real-time scan progress monitoring via API polling
+  - Results dashboard with ROI scoring
+  - Educational "Help Me Learn" components
+  - Import/Export functionality (.rs0n files)
+  - Network visualization with React Force Graph
+  - **URL Workflow Enhancements**:
+    - Automated vulnerability testing dashboard
+    - Evidence collection and visualization
+    - Kill-chain analysis display
+    - Findings management interface
+    - Reproduction pack generation UI
+
+### Backend API Service (Go)
+- **Technology**: Go with Gorilla Mux router
+- **Port**: 8443
+- **Database**: PostgreSQL with pgx/v5 driver
+- **Responsibilities**:
+  - RESTful API endpoints for frontend communication
+  - Docker container management via socket mounting
+  - Security tool orchestration and execution
+  - Data parsing and transformation
+  - Database operations with 50+ table schema
+  - Workflow state management
+  - Auto-scan session tracking
+  - **URL Workflow Enhancements**:
+    - Evidence collection and logging system
+    - Findings pipeline with deduplication
+    - Kill-chain vulnerability analysis
+    - Reproduction pack generation
+    - Multi-identity testing coordination
+    - Out-of-band interaction handling
+
+### AI Service (Python FastAPI)
+- **Technology**: FastAPI with T5-small model
+- **Port**: 8000
+- **Features**:
+  - Local T5-small model processing
+  - Document question answering
+  - Educational content generation
+  - Health monitoring and model management
+
+### Database Service (PostgreSQL)
+- **Technology**: PostgreSQL with comprehensive schema
+- **Port**: 5432
+- **Key Tables**:
+  - `scope_targets` - Target organizations and domains
+  - `consolidated_attack_surface_assets` - Unified asset management
+  - Tool-specific scan tables (50+ tables)
+  - `user_settings`, `api_keys` - Configuration management
+  - `auto_scan_sessions` - Workflow tracking
+  - **URL Workflow Tables**:
+    - `url_workflow_sessions` - Automated testing sessions
+    - `findings` - Central vulnerability repository
+    - `vectors` - Attack vector details
+    - `evidence_blobs` - Evidence artifact storage
+    - `contexts` - Multi-identity testing context
+    - `repro_recipes` - Reproduction instructions
+    - `oob_events` - Out-of-band interactions
+    - `kill_chain_analysis` - Vulnerability chaining logic
+    - `kill_chain_steps` - Individual chain components
+    - `kill_chain_patterns` - Predefined attack patterns
+
+## Container Architecture
+
+### Security Tool Integration Pattern
+
+Each security tool operates in a dedicated Docker container with standardized patterns:
+
+```
+Backend API Container
+├── Docker Socket Mount (/var/run/docker.sock)
+├── Tool Execution Layer (docker exec commands)
+├── Result Parser Layer (tool-specific parsers)
+└── Database Integration Layer
+    │
+    ├── Amass Container (sleep infinity)
+    ├── Nuclei Container (sleep infinity)
+    ├── Subfinder Container (sleep infinity)
+    ├── Httpx Container (sleep infinity)
+    ├── GoSpider Container (sleep infinity)
+    ├── Katana Container (sleep infinity)
+    └── [20+ Additional Tool Containers]
+```
+
+### Tool Execution Flow
+1. **Frontend Request** → Backend API endpoint
+2. **Backend Validation** → Input sanitization and workflow validation
+3. **Container Execution** → `docker exec` command on running container
+4. **Tool Execution** → Tool runs with specified parameters
+5. **Result Parsing** → Tool-specific output parsing
+6. **Database Storage** → Structured data insertion
+7. **Frontend Update** → API response with scan status
+
+### Container Management
+- **Startup Pattern**: All tool containers start with `sleep infinity` entrypoint
+- **Execution Pattern**: Backend uses `docker exec` to run tools in containers
+- **Resource Management**: Memory and CPU limits defined in docker-compose.yml
+- **Networking**: Custom bridge network for inter-service communication
+- **Volume Management**: Shared volumes for temporary data and results
+
+## Core Workflows Implementation
+
+### Company Workflow Architecture
+```
+ASN Discovery → Network Scanning → Domain Discovery → Consolidation → Subdomain Enumeration
+     │               │                    │               │                   │
+  Metabigor       IP/Port Scanning    SecurityTrails    Database         Amass/Subfinder
+     │               │                    │               │                   │
+  Cloud Enum      Live Detection      GitHub Recon    Duplicate       JavaScript Crawling
+     │               │                    │            Removal              │
+  Database        Database            Database        Database          Database
+```
+
+### Wildcard Workflow Architecture
+```
+Initial Enumeration → Live Detection → Brute Force → Live Detection → JS Crawling → ROI Analysis
+        │                   │             │             │              │              │
+   Multiple Tools        Httpx        ShuffleDNS     Httpx         GoSpider      Metadata
+        │                   │             │             │              │         Analysis
+    Database           Database      CeWL/Wordlists  Database       Database        │
+                                                                                Database
+```
+
+### URL Workflow Architecture
+```
+ROI Selection → Attack Surface → DAST Engine → Targeted Testing → Evidence Collection → Kill-Chain Analysis
+     │              Mapping           │            │                      │                    │
+Top 10 URLs      Web Crawling      Nuclei      SQLi/XSS/IDOR         HAR/Screenshots     Chain Detection
+     │          Directory Brute     Custom      SSRF/AuthBypass       DOM/PCAP/Logs      Priority Scoring
+     │          JS Endpoints       Browser      Multi-Identity         Evidence Storage   Repro Generation
+     │          API Discovery      Validation     Testing             Deduplication       Export Pipeline
+     │              │                │            │                      │                    │
+  Database       Database        Database    Database                Database            Database
+```
+
+### Auto-Scan Session Management
+```
+Auto Scan Request → Session Creation → Step Execution → Progress Tracking → Completion
+        │                   │               │               │                │
+   Configuration       auto_scan_sessions   Step Runner    Real-time        Final
+   Validation               Table           Engine        Updates          Results
+        │                   │               │               │                │
+    Database            Database        Database        Database        Database
+```
+
+## Data Flow Architecture
+
+### Scan Data Pipeline
+```
+Security Tool Output → Parser → Database → Frontend Visualization
+        │                        │              │
+        ├── Raw Text             ├── JSON        ├── React Components
+        ├── JSON                 ├── Normalized  ├── Charts/Graphs
+        └── XML/CSV              └── Indexed     └── ROI Scoring
+```
+
+### Consolidated Attack Surface
+```
+Individual Tool Results → Data Normalization → Asset Consolidation → Relationship Mapping
+            │                     │                     │                      │
+    Tool-specific tables    Parsing Functions    consolidated_attack    Visualization
+            │                     │            surface_assets              │
+        Database              Database             Database            Frontend
+```
+
+## Communication Patterns
+
+### API Communication
+- **Frontend ↔ Backend**: HTTP/HTTPS REST API (port 3000 → 8443)
+- **Backend ↔ AI Service**: HTTP REST API (port 8443 → 8000)
+- **Backend ↔ Database**: PostgreSQL via pgx/v5 (port 8443 → 5432)
+- **Backend ↔ Tool Containers**: Docker socket + exec commands
+
+### Real-time Updates
+- **Polling Mechanisms**: Frontend polls backend for scan status updates
+- **WebSocket Potential**: Architecture supports WebSocket addition
+- **Event-Driven Design**: Auto-scan sessions with step-based progression
+
+## Security Architecture
+
+### Container Security
+- **Isolation**: Each tool in separate container with resource limits
+- **Socket Security**: Docker socket mounted read-only where possible
+- **Network Segmentation**: Custom Docker bridge network
+- **Non-root Execution**: Tool containers run with appropriate user permissions
+
+### Data Security
+- **Input Validation**: Comprehensive validation in Go backend
+- **SQL Injection Prevention**: Parameterized queries with pgx
+- **API Key Management**: Encrypted storage in dedicated database tables
+- **Environment Variables**: Secure configuration via docker-compose
+
+### Network Security
+- **Internal Communication**: Docker internal networks only
+- **Port Exposure**: Only necessary ports exposed (3000, 8443, 8000)
+- **Database Access**: Internal network access only
+- **Tool Isolation**: No direct tool-to-tool communication
+
+## Performance & Scalability
+
+### Current Performance Optimizations
+- **Go Concurrency**: Goroutines for parallel operations
+- **Database Indexing**: Performance indexes on frequently queried columns
+- **Connection Pooling**: PostgreSQL connection pooling via pgx
+- **Resource Management**: Container memory and CPU limits
+
+### Scalability Considerations
+- **Horizontal Scaling**: Docker-compose can be migrated to Kubernetes
+- **Database Sharding**: Schema supports multi-tenant expansion
+- **Load Balancing**: Frontend and API layers can be load balanced
+- **Tool Parallelization**: Multiple tool instances can run concurrently
+
+## Monitoring & Observability
+
+### Current Logging
+- **Structured Logging**: Go log package with consistent formatting
+- **Scan Tracking**: Comprehensive execution time and status tracking
+- **Error Handling**: Dedicated error storage for all operations
+- **Database Logging**: PostgreSQL query logging capabilities
+
+### Health Monitoring
+- **Database Health**: Docker-compose health checks
+- **Service Health**: AI service health endpoints
+- **Container Status**: Docker container status monitoring
+- **Scan Progress**: Real-time scan status tracking
+
+## Deployment Architecture
+
+### Current Development Environment
+```
+Docker Compose Orchestration
+├── API Service Container (Go backend)
+├── Frontend Container (React build)
+├── AI Service Container (FastAPI)
+├── Database Container (PostgreSQL)
+├── Tool Containers (20+ security tools)
+└── Shared Networks & Volumes
+```
+
+### Production Readiness Features
+- **Health Checks**: Service health monitoring
+- **Resource Limits**: Container resource management
+- **Data Persistence**: PostgreSQL data volumes
+- **Configuration Management**: Environment-based configuration
+- **Restart Policies**: Automatic container restart handling
+
+## Technology Decisions
+
+### Backend Technology Choices
+- **Go Selection**: High performance, excellent concurrency, single binary deployment
+- **Gorilla Mux**: Advanced routing capabilities for complex API structure
+- **pgx Driver**: High-performance PostgreSQL connectivity with modern features
+
+### Frontend Technology Choices
+- **React CRA**: Stable, well-supported SPA framework
+- **Bootstrap**: Consistent, responsive UI components
+- **React Force Graph**: Specialized network visualization capabilities
+
+### Database Design Decisions
+- **PostgreSQL**: Complex relational data requirements with JSONB support
+- **UUID Primary Keys**: Distributed system compatibility
+- **Comprehensive Schema**: 50+ tables for detailed asset management
+- **Performance Indexing**: Strategic indexes for query optimization
+
+This architecture supports the core mission of democratizing bug bounty hunting through education and automation while maintaining enterprise-grade security, performance, and scalability.

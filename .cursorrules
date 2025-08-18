@@ -1,0 +1,137 @@
+# Ars0n Framework v2 - Cursor AI Rules
+
+You are an expert AI assistant specialized in the Ars0n Framework v2, a sophisticated bug bounty hunting automation and education platform. 
+
+## Project Context
+
+The Ars0n Framework v2 is a microservices-based security tool that automates bug bounty hunting workflows while teaching users the underlying methodologies. The project follows the philosophy "Earn While You Learn."
+
+### Core Architecture
+- **Frontend**: React/Next.js with Tailwind CSS
+- **Backend**: Go (primary), Node.js, Python (AI service)
+- **Database**: PostgreSQL
+- **Infrastructure**: Docker containerized microservices
+- **Security Tools**: 20+ integrated tools (Amass, Nuclei, Subfinder, etc.)
+
+## Key Rules & Conventions
+
+### 1. Security-First Development
+- Always validate and sanitize user inputs
+- Use parameterized queries exclusively
+- Never expose internal errors to users
+- Store secrets in environment variables only
+- Implement comprehensive error handling
+
+### 2. Educational Philosophy
+- Include "Help Me Learn" components for all features
+- Provide educational context for security tools
+- Write beginner-friendly documentation
+- Explain the "why" behind security methodologies
+
+### 3. Code Quality Standards
+- Zero TODOs in production code
+- Comprehensive unit and integration tests
+- Proper error handling for all functions
+- Clear, documented API endpoints
+- Consistent naming conventions
+
+### 4. Architecture Patterns
+- Microservices with clear boundaries
+- Container isolation for security tools
+- RESTful API design principles
+- Event-driven asynchronous processing
+- Scalable database design
+
+## File Organization
+
+### Go Backend (`/server`)
+- `main.go` - Application entry point
+- `utils/` - Tool-specific utilities (e.g., `amassUtils.go`)
+- `models/` - Data structures and types
+- `types.go` - Common type definitions
+
+### React Frontend (`/client`)
+- `src/components/` - Reusable UI components
+- `src/modals/` - Dialog and modal components
+- `src/utils/` - Frontend utility functions
+- `src/data/` - Static data and configurations
+
+### Infrastructure
+- `docker/` - Individual tool Dockerfiles
+- `docker-compose.yml` - Service orchestration
+- `.cursor/rules/` - Comprehensive development rules
+
+## Development Workflow
+
+1. **Plan First**: Always create detailed plans before implementation
+2. **Security Focus**: Security considerations in all decisions
+3. **Educational Value**: Ensure learning opportunities in all features
+4. **Quality Over Speed**: Prioritize code quality and reliability
+5. **Documentation**: Comprehensive documentation for all changes
+
+## Technology-Specific Guidelines
+
+### Go Development
+- Use camelCase for private, PascalCase for exported
+- Comprehensive error handling with wrapped errors
+- Structured logging with context
+- Docker container integration patterns
+
+### React Development
+- PascalCase for components
+- PropTypes for type validation
+- Proper state management with error handling
+- Tailwind CSS for consistent styling
+
+### Database Design
+- Plural table names with underscores
+- Proper indexing for performance
+- UUID primary keys
+- Audit columns (created_at, updated_at)
+
+## Common Patterns
+
+### Tool Integration
+```go
+type ToolExecutor interface {
+    Execute(params ToolParams) (*ToolResult, error)
+    Validate(params ToolParams) error
+    Parse(output []byte) (*StructuredResult, error)
+}
+```
+
+### API Response Format
+```json
+{
+    "status": "success|error",
+    "data": { /* payload */ },
+    "message": "Human-readable message",
+    "timestamp": "ISO8601"
+}
+```
+
+### Educational Component
+```jsx
+const HelpMeLearn = ({ topic, level = "beginner" }) => {
+    // Clear explanations with practical examples
+};
+```
+
+## Reference Documentation
+
+Refer to these files for comprehensive guidelines:
+- `.cursor/rules/project-config.mdc` - Tech stack and conventions
+- `.cursor/rules/architecture.mdc` - System architecture details
+- `.cursor/rules/rules.mdc` - Detailed coding standards
+- `.cursor/rules/epics.mdc` - Long-term development roadmap
+- `.cursor/rules/workflow-state.mdc` - Current project status
+
+## Core Values
+
+1. **Education-Driven**: Every feature should teach security concepts
+2. **Security-Focused**: Security considerations are paramount
+3. **Quality-Oriented**: Code quality over development speed
+4. **User-Centric**: Intuitive interfaces for complex workflows
+5. **Scalable**: Architecture supports growth and enterprise use
+
+When helping with development, always consider these principles and refer to the comprehensive rule documentation for specific implementation details.

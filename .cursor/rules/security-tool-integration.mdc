@@ -1,0 +1,654 @@
+---
+alwaysApply: true
+---
+
+# Ars0n Framework v2 - Security Tool Integration Patterns
+
+## Security Tool Integration Philosophy
+
+The Ars0n Framework v2 integrates 20+ security tools following consistent patterns that ensure scalability, maintainability, and educational value. Each tool integration follows the "Earn While You Learn" philosophy.
+
+## Container Architecture Patterns
+
+### Dockerfile Patterns
+Each security tool has a dedicated Dockerfile following consistent patterns:
+
+#### Simple Tool Pattern (Go-based tools)
+```dockerfile
+FROM golang:1.24-alpine
+
+RUN go install github.com/toolauthor/toolname@latest
+
+ENTRYPOINT ["/go/bin/toolname"]
+```
+
+#### Complex Tool Pattern (Multi-dependency tools)
+```dockerfile
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    wget \
+    unzip \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install tool
+RUN wget https://github.com/author/tool/releases/download/v1.0.0/tool_linux_amd64.zip && \
+    unzip tool_linux_amd64.zip && \
+    mv tool /usr/local/bin/ && \
+    chmod +x /usr/local/bin/tool && \
+    rm tool_linux_amd64.zip
+
+WORKDIR /app
+
+ENTRYPOINT ["tool"]
+```
+
+#### Architecture-Aware Pattern (Multi-arch support)
+```dockerfile
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y wget
+
+# Detect architecture and install accordingly
+RUN arch=$(dpkg --print-architecture) && \
+    if [ "$arch" = "amd64" ]; then \
+        wget https://github.com/author/tool/releases/download/v1.0.0/tool_linux_amd64.zip; \
+    elif [ "$arch" = "arm64" ]; then \
+        wget https://github.com/author/tool/releases/download/v1.0.0/tool_linux_arm64.zip; \
+    fi && \
+    unzip tool_*.zip && \
+    mv tool /usr/local/bin/ && \
+    chmod +x /usr/local/bin/tool
+
+ENTRYPOINT ["tool"]
+```
+
+### Docker Compose Integration
+All tools follow the same docker-compose pattern:
+
+```yaml
+toolname:
+  container_name: ars0n-framework-v2-toolname-1
+  build: ./docker/toolname
+  depends_on:
+    - api
+  entrypoint: ["sleep", "infinity"]
+  restart: "no"
+  networks:
+    - ars0n-network
+  # Optional: resource limits
+  deploy:
+    resources:
+      limits:
+        memory: 2G
+        cpus: '2'
+      reservations:
+        memory: 512M
+        cpus: '0.5'
+```
+
+## Backend Integration Patterns
+
+### Go Utility File Structure
+Each tool has a dedicated utility file following this pattern:
+
+```go
+// server/utils/toolnameUtils.go
+package utils
+
+import (
+    "context"
+    "database/sql"
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+    "os/exec"
+    "strings"
+    "time"
+    
+    "github.com/google/uuid"
+    "github.com/gorilla/mux"
+    "github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Tool-specific types
+type ToolnameConfigParams struct {
+    Domain     string   `json:"domain"`
+    Options    []string `json:"options"`
+    RateLimit  int      `json:"rate_limit"`
+}
+
+type ToolnameScanStatus struct {
+    ID                string         `json:"id"`
+    ScanID            string         `json:"scan_id"`
+    Domain            string         `json:"domain"`
+    Status            string         `json:"status"`
+    Result            sql.NullString `json:"result,omitempty"`
+    Error             sql.NullString `json:"error,omitempty"`
+    StdOut            sql.NullString `json:"stdout,omitempty"`
+    StdErr            sql.NullString `json:"stderr,omitempty"`
+    Command           sql.NullString `json:"command,omitempty"`
+    ExecTime          sql.NullString `json:"execution_time,omitempty"`
+    CreatedAt         time.Time      `json:"created_at"`
+    ScopeTargetID     string         `json:"scope_target_id"`
+    AutoScanSessionID sql.NullString `json:"auto_scan_session_id"`
+}
+
+// Database pool initialization
+var dbPool *pgxpool.Pool
+
+func InitDB(pool *pgxpool.Pool) {
+    dbPool = pool
+}
+
+// Main API handlers
+func InitiateToolnameScan(w http.ResponseWriter, r *http.Request) {
+    // Implementation
+}
+
+func GetToolnameScanStatus(w http.ResponseWriter, r *http.Request) {
+    // Implementation
+}
+
+func GetToolnameScanResults(w http.ResponseWriter, r *http.Request) {
+    // Implementation
+}
+
+// Core functions
+func executeToolnameInContainer(params ToolnameConfigParams) (string, error) {
+    // Tool execution logic
+}
+
+func parseToolnameOutput(scanID, rawOutput string) error {
+    // Tool-specific parsing logic
+}
+
+func storeToolnameResults(scanID string, results []ParsedResult) error {
+    // Database storage logic
+}
+```
+
+### API Endpoint Patterns
+Each tool exposes consistent API endpoints:
+
+```go
+// Initiate scan endpoint
+func InitiateToolnameScan(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Access-Control-Allow-Origin", "*")
+    w.Header().Set("Content-Type", "application/json")
+    
+    // Extract parameters
+    vars := mux.Vars(r)
+    domain := vars["domain"]
+    scopeTargetID := vars["scopeTargetId"]
+    
+    // Validate input
+    if domain == "" || scopeTargetID == "" {
+        http.Error(w, "Missing required parameters", http.StatusBadRequest)
+        return
+    }
+    
+    // Generate scan ID
+    scanID := uuid.New().String()
+    
+    // Create initial scan record
+    query := `INSERT INTO toolname_scans (scan_id, domain, status, scope_target_id, created_at) 
+              VALUES ($1, $2, 'pending', $3, NOW())`
+    _, err := dbPool.Exec(context.Background(), query, scanID, domain, scopeTargetID)
+    if err != nil {
+        log.Printf("[ERROR] Failed to create scan record: %v", err)
+        http.Error(w, "Database error", http.StatusInternalServerError)
+        return
+    }
+    
+    // Execute tool asynchronously
+    go executeAndParseToolname(scanID, domain, scopeTargetID)
+    
+    // Return scan ID
+    response := map[string]string{"scan_id": scanID}
+    json.NewEncoder(w).Encode(response)
+}
+```
+
+### Tool Execution Pattern
+Consistent tool execution across all integrations:
+
+```go
+func executeAndParseToolname(scanID, domain, scopeTargetID string) {
+    startTime := time.Now()
+    
+    // Update status to running
+    updateScanStatus(scanID, "running", "", "")
+    
+    // Build command
+    args := []string{"-d", domain}
+    cmd := exec.Command("docker", "exec", "ars0n-framework-v2-toolname-1", "toolname")
+    cmd.Args = append(cmd.Args, args...)
+    
+    // Set timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+    defer cancel()
+    cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+    
+    // Execute and capture output
+    var stdout, stderr bytes.Buffer
+    cmd.Stdout = &stdout
+    cmd.Stderr = &stderr
+    
+    err := cmd.Run()
+    executionTime := time.Since(startTime).String()
+    
+    // Process results
+    if err != nil {
+        errorMsg := fmt.Sprintf("Command failed: %v", err)
+        updateScanStatus(scanID, "failed", errorMsg, executionTime)
+        log.Printf("[ERROR] Tool execution failed for scan %s: %v", scanID, err)
+        return
+    }
+    
+    // Parse and store results
+    outputStr := stdout.String()
+    if err := parseToolnameOutput(scanID, outputStr); err != nil {
+        errorMsg := fmt.Sprintf("Parsing failed: %v", err)
+        updateScanStatus(scanID, "failed", errorMsg, executionTime)
+        log.Printf("[ERROR] Parsing failed for scan %s: %v", scanID, err)
+        return
+    }
+    
+    // Update status to completed
+    updateScanStatus(scanID, "completed", "", executionTime)
+    log.Printf("[INFO] Successfully completed scan %s in %s", scanID, executionTime)
+}
+```
+
+## Database Schema Patterns
+
+### Scan Table Pattern
+Each tool has a dedicated scan tracking table:
+
+```sql
+CREATE TABLE IF NOT EXISTS toolname_scans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scan_id UUID NOT NULL UNIQUE,
+    domain TEXT NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    result TEXT,
+    error TEXT,
+    stdout TEXT,
+    stderr TEXT,
+    command TEXT,
+    execution_time TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE,
+    auto_scan_session_id UUID REFERENCES auto_scan_sessions(id) ON DELETE SET NULL
+);
+```
+
+### Results Table Pattern
+Tool-specific results storage:
+
+```sql
+CREATE TABLE IF NOT EXISTS toolname_results (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scan_id UUID NOT NULL,
+    result_type VARCHAR(50) NOT NULL,
+    result_data TEXT NOT NULL,
+    parsed_data JSONB,
+    created_at TIMESTAMP DEFAULT NOW(),
+    FOREIGN KEY (scan_id) REFERENCES toolname_scans(scan_id) ON DELETE CASCADE
+);
+```
+
+### Configuration Table Pattern
+Tool-specific configuration storage:
+
+```sql
+CREATE TABLE IF NOT EXISTS toolname_configs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scope_target_id UUID NOT NULL UNIQUE REFERENCES scope_targets(id) ON DELETE CASCADE,
+    selected_targets JSONB NOT NULL DEFAULT '[]',
+    options JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+## Parsing Patterns
+
+### Generic Parsing Framework
+Consistent parsing structure for all tools:
+
+```go
+func parseToolnameOutput(scanID, rawOutput string) error {
+    if rawOutput == "" {
+        log.Printf("[INFO] No output to parse for scan %s", scanID)
+        return nil
+    }
+    
+    lines := strings.Split(rawOutput, "\n")
+    var results []ParsedResult
+    
+    for lineNum, line := range lines {
+        line = strings.TrimSpace(line)
+        if line == "" {
+            continue
+        }
+        
+        // Tool-specific parsing logic
+        result, err := parseToolnameLine(line)
+        if err != nil {
+            log.Printf("[WARN] Failed to parse line %d for scan %s: %v", lineNum, scanID, err)
+            continue
+        }
+        
+        if result != nil {
+            results = append(results, *result)
+        }
+    }
+    
+    log.Printf("[INFO] Parsed %d results for scan %s", len(results), scanID)
+    return storeToolnameResults(scanID, results)
+}
+
+func parseToolnameLine(line string) (*ParsedResult, error) {
+    // Tool-specific line parsing
+    // Return structured data or nil if line should be ignored
+    return &ParsedResult{
+        Type: "subdomain",
+        Data: line,
+        Metadata: map[string]string{},
+    }, nil
+}
+```
+
+### JSON Output Parsing
+For tools that output JSON:
+
+```go
+type ToolnameJSONOutput struct {
+    Host   string            `json:"host"`
+    IP     string            `json:"ip"`
+    Extra  map[string]string `json:"extra"`
+}
+
+func parseToolnameJSON(scanID, jsonOutput string) error {
+    var outputs []ToolnameJSONOutput
+    
+    // Handle both single JSON objects and JSONL (one JSON per line)
+    lines := strings.Split(jsonOutput, "\n")
+    for _, line := range lines {
+        line = strings.TrimSpace(line)
+        if line == "" {
+            continue
+        }
+        
+        var output ToolnameJSONOutput
+        if err := json.Unmarshal([]byte(line), &output); err != nil {
+            log.Printf("[WARN] Failed to parse JSON line: %v", err)
+            continue
+        }
+        
+        outputs = append(outputs, output)
+    }
+    
+    return storeToolnameJSONResults(scanID, outputs)
+}
+```
+
+## Frontend Integration Patterns
+
+### Modal Component Pattern
+Each tool has a consistent modal interface:
+
+```jsx
+// modals/ToolnameModal.js
+import { useState, useEffect } from 'react';
+import { Modal, Button, Form, Alert, Table } from 'react-bootstrap';
+
+const ToolnameModal = ({ show, onHide, scopeTargetId }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [scanStatus, setScanStatus] = useState(null);
+  const [results, setResults] = useState([]);
+  
+  const initiateScan = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`/api/toolname/scan/${scopeTargetId}`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) throw new Error('Scan initiation failed');
+      
+      const data = await response.json();
+      setScanStatus({ id: data.scan_id, status: 'running' });
+      
+      // Start polling for results
+      pollScanStatus(data.scan_id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const pollScanStatus = (scanId) => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/toolname/status/${scanId}`);
+        const status = await response.json();
+        
+        setScanStatus(status);
+        
+        if (status.status === 'completed') {
+          clearInterval(interval);
+          fetchResults(scanId);
+        } else if (status.status === 'failed') {
+          clearInterval(interval);
+          setError(status.error || 'Scan failed');
+        }
+      } catch (err) {
+        clearInterval(interval);
+        setError('Status polling failed');
+      }
+    }, 2000);
+  };
+  
+  return (
+    <Modal show={show} onHide={onHide} size="lg">
+      <Modal.Header closeButton>
+        <Modal.Title>Toolname Scan</Modal.Title>
+      </Modal.Header>
+      
+      <Modal.Body>
+        {error && <Alert variant="danger">{error}</Alert>}
+        
+        {!scanStatus ? (
+          <div>
+            <p>This tool performs domain enumeration...</p>
+            <Button onClick={initiateScan} disabled={loading}>
+              {loading ? 'Starting...' : 'Start Scan'}
+            </Button>
+          </div>
+        ) : (
+          <div>
+            <p>Status: {scanStatus.status}</p>
+            {results.length > 0 && (
+              <Table striped bordered>
+                <thead>
+                  <tr>
+                    <th>Result</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((result, index) => (
+                    <tr key={index}>
+                      <td>{result.data}</td>
+                      <td>{result.type}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </div>
+        )}
+      </Modal.Body>
+    </Modal>
+  );
+};
+
+export default ToolnameModal;
+```
+
+### Utility Function Pattern
+Each tool has corresponding utility functions:
+
+```jsx
+// utils/initiateToolnameScan.js
+export const initiateToolnameScan = async (domain, scopeTargetId) => {
+  const serverProtocol = process.env.REACT_APP_SERVER_PROTOCOL || 'http';
+  const serverIP = process.env.REACT_APP_SERVER_IP || '127.0.0.1';
+  const serverPort = process.env.REACT_APP_SERVER_PORT || '8443';
+  
+  const response = await fetch(
+    `${serverProtocol}://${serverIP}:${serverPort}/api/toolname/scan/${domain}/${scopeTargetId}`,
+    { method: 'POST' }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  
+  return await response.json();
+};
+
+// utils/monitorToolnameScanStatus.js
+export const monitorToolnameScanStatus = async (scanId) => {
+  const serverProtocol = process.env.REACT_APP_SERVER_PROTOCOL || 'http';
+  const serverIP = process.env.REACT_APP_SERVER_IP || '127.0.0.1';
+  const serverPort = process.env.REACT_APP_SERVER_PORT || '8443';
+  
+  const response = await fetch(
+    `${serverProtocol}://${serverIP}:${serverPort}/api/toolname/status/${scanId}`
+  );
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  
+  return await response.json();
+};
+```
+
+## Auto-Scan Integration Patterns
+
+### Auto-Scan Step Integration
+Each tool can be integrated into the auto-scan workflow:
+
+```go
+// In auto-scan engine
+func executeToolnameStep(sessionID, scopeTargetID string, config AutoScanConfig) error {
+    if !config.Toolname {
+        log.Printf("[INFO] Toolname step skipped for session %s", sessionID)
+        return nil
+    }
+    
+    log.Printf("[INFO] Starting toolname step for session %s", sessionID)
+    
+    // Get targets for scanning
+    targets, err := getConsolidatedTargets(scopeTargetID)
+    if err != nil {
+        return fmt.Errorf("failed to get targets: %w", err)
+    }
+    
+    // Execute tool for each target
+    for _, target := range targets {
+        scanID, err := initiateToolnameScanInternal(target, scopeTargetID, sessionID)
+        if err != nil {
+            log.Printf("[ERROR] Failed to initiate toolname scan: %v", err)
+            continue
+        }
+        
+        // Wait for completion
+        if err := waitForScanCompletion(scanID); err != nil {
+            log.Printf("[ERROR] Toolname scan failed: %v", err)
+            continue
+        }
+    }
+    
+    log.Printf("[INFO] Completed toolname step for session %s", sessionID)
+    return nil
+}
+```
+
+## Educational Integration Patterns
+
+### Help Me Learn Components
+Each tool integration includes educational content:
+
+```jsx
+const ToolnameHelpMeLearn = () => (
+  <Card className="mb-3">
+    <Card.Header>
+      <strong>🎓 Help Me Learn: Toolname</strong>
+    </Card.Header>
+    <Card.Body>
+      <h6>What is Toolname?</h6>
+      <p>Toolname is a security tool that performs...</p>
+      
+      <h6>When should I use it?</h6>
+      <p>Use toolname when you need to...</p>
+      
+      <h6>How does it work?</h6>
+      <p>The tool works by...</p>
+      
+      <h6>Understanding the Results</h6>
+      <p>The output shows...</p>
+    </Card.Body>
+  </Card>
+);
+```
+
+## Error Handling Patterns
+
+### Comprehensive Error Management
+Consistent error handling across all tool integrations:
+
+```go
+func handleToolError(scanID, operation string, err error) {
+    errorMsg := fmt.Sprintf("%s failed: %v", operation, err)
+    
+    // Update database
+    updateScanStatus(scanID, "failed", errorMsg, "")
+    
+    // Log with context
+    log.Printf("[ERROR] Scan %s - %s", scanID, errorMsg)
+    
+    // Optional: Send notification
+    notifyError(scanID, errorMsg)
+}
+
+func updateScanStatus(scanID, status, errorMsg, executionTime string) {
+    query := `UPDATE toolname_scans 
+              SET status = $1, error = $2, execution_time = $3, updated_at = NOW() 
+              WHERE scan_id = $4`
+    
+    _, err := dbPool.Exec(context.Background(), query, status, errorMsg, executionTime, scanID)
+    if err != nil {
+        log.Printf("[ERROR] Failed to update scan status: %v", err)
+    }
+}
+```
+
+These patterns ensure consistent, maintainable, and educational security tool integrations across the entire Ars0n Framework v2 platform.

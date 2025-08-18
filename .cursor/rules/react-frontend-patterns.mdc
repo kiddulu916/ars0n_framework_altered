@@ -1,0 +1,577 @@
+---
+alwaysApply: true
+---
+
+# Ars0n Framework v2 - React Frontend Patterns
+
+## React Project Structure
+
+The React frontend follows a component-based architecture with clear separation between UI components, modals, utilities, and data management.
+
+## File Organization Patterns
+
+### Directory Structure
+```
+client/src/
+├── App.js                    # Main application component
+├── index.js                  # Application entry point
+├── components/               # Reusable UI components
+│   ├── ars0nFrameworkHeader.js
+│   ├── manageScopeTargets.js
+│   └── HelpMeLearn.js
+├── modals/                   # Modal dialog components
+│   ├── addScopeTargetModal.js
+│   ├── SettingsModal.js
+│   └── {Tool}Modal.js
+├── utils/                    # Frontend utility functions
+│   ├── initiateAmassScan.js
+│   ├── monitorScanStatus.js
+│   └── fetchAmassScans.js
+└── data/                     # Static data and configurations
+    └── lessons.js
+```
+
+### File Naming Conventions
+- **Components**: PascalCase (e.g., `HelpMeLearn.js`, `ScopeTargetDetails.js`)
+- **Modals**: PascalCase with "Modal" suffix (e.g., `SettingsModal.js`, `AmassConfigModal.js`)
+- **Utilities**: camelCase with descriptive names (e.g., `initiateAmassScan.js`, `validateInput.js`)
+- **Data Files**: camelCase (e.g., `lessons.js`, `configurations.js`)
+
+## Component Patterns
+
+### Functional Component Structure
+Standard functional component with hooks:
+
+```jsx
+import { useState, useEffect } from 'react';
+import { Button, Modal, Form, Alert } from 'react-bootstrap';
+
+const ComponentName = ({ prop1, prop2, onAction }) => {
+  // State declarations
+  const [state1, setState1] = useState(initialValue);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  // Effects
+  useEffect(() => {
+    // Effect logic
+    fetchData();
+  }, [dependency]);
+  
+  // Event handlers
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await performAction();
+      onAction && onAction();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Render method
+  return (
+    <div>
+      {error && <Alert variant="danger">{error}</Alert>}
+      {/* Component JSX */}
+    </div>
+  );
+};
+
+export default ComponentName;
+```
+
+### Modal Component Pattern
+Consistent modal structure across the application:
+
+```jsx
+import { useState } from 'react';
+import { Modal, Button, Form, Alert, Spinner } from 'react-bootstrap';
+
+const ExampleModal = ({ show, onHide, onSuccess, targetId }) => {
+  const [formData, setFormData] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/endpoint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      
+      if (!response.ok) throw new Error('Request failed');
+      
+      const result = await response.json();
+      onSuccess && onSuccess(result);
+      onHide();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  return (
+    <Modal show={show} onHide={onHide} size="lg">
+      <Modal.Header closeButton>
+        <Modal.Title>Modal Title</Modal.Title>
+      </Modal.Header>
+      
+      <Modal.Body>
+        {error && <Alert variant="danger">{error}</Alert>}
+        <Form onSubmit={handleSubmit}>
+          {/* Form content */}
+        </Form>
+      </Modal.Body>
+      
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onHide} disabled={loading}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={handleSubmit} disabled={loading}>
+          {loading ? <Spinner size="sm" /> : 'Submit'}
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+};
+
+export default ExampleModal;
+```
+
+## State Management Patterns
+
+### Local Component State
+Use useState for component-specific data:
+
+```jsx
+const [scanResults, setScanResults] = useState([]);
+const [selectedItems, setSelectedItems] = useState(new Set());
+const [filters, setFilters] = useState({
+  status: 'all',
+  timeRange: '24h'
+});
+```
+
+### State Update Patterns
+Immutable state updates:
+
+```jsx
+// Array updates
+setScanResults(prev => [...prev, newScan]);
+setScanResults(prev => prev.filter(scan => scan.id !== scanId));
+
+// Object updates
+setFilters(prev => ({ ...prev, status: 'completed' }));
+
+// Set updates
+setSelectedItems(prev => new Set([...prev, itemId]));
+setSelectedItems(prev => {
+  const newSet = new Set(prev);
+  newSet.delete(itemId);
+  return newSet;
+});
+```
+
+## API Communication Patterns
+
+### Fetch API Pattern
+Consistent API calling pattern:
+
+```jsx
+const apiCall = async (endpoint, options = {}) => {
+  const serverProtocol = process.env.REACT_APP_SERVER_PROTOCOL || 'http';
+  const serverIP = process.env.REACT_APP_SERVER_IP || '127.0.0.1';
+  const serverPort = process.env.REACT_APP_SERVER_PORT || '8443';
+  const baseURL = `${serverProtocol}://${serverIP}:${serverPort}`;
+  
+  const defaultOptions = {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  };
+  
+  try {
+    const response = await fetch(`${baseURL}${endpoint}`, {
+      ...defaultOptions,
+      ...options,
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('API call failed:', error);
+    throw error;
+  }
+};
+
+// Usage
+const initiateScan = async (domain) => {
+  return await apiCall('/api/scans', {
+    method: 'POST',
+    body: JSON.stringify({ domain })
+  });
+};
+```
+
+### Polling Pattern for Scan Status
+Monitor long-running operations:
+
+```jsx
+const usePolling = (scanId, interval = 2000) => {
+  const [status, setStatus] = useState(null);
+  const [isPolling, setIsPolling] = useState(false);
+  
+  useEffect(() => {
+    if (!scanId || !isPolling) return;
+    
+    const pollStatus = async () => {
+      try {
+        const response = await apiCall(`/api/scans/${scanId}/status`);
+        setStatus(response);
+        
+        // Stop polling when scan is complete
+        if (['completed', 'failed'].includes(response.status)) {
+          setIsPolling(false);
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+        setIsPolling(false);
+      }
+    };
+    
+    const intervalId = setInterval(pollStatus, interval);
+    pollStatus(); // Initial call
+    
+    return () => clearInterval(intervalId);
+  }, [scanId, isPolling, interval]);
+  
+  return { status, isPolling, startPolling: () => setIsPolling(true) };
+};
+```
+
+## UI Component Patterns
+
+### Loading States
+Consistent loading state handling:
+
+```jsx
+const LoadingButton = ({ loading, children, ...props }) => (
+  <Button {...props} disabled={loading}>
+    {loading ? (
+      <>
+        <Spinner size="sm" className="me-2" />
+        Loading...
+      </>
+    ) : (
+      children
+    )}
+  </Button>
+);
+
+const LoadingSpinner = ({ text = "Loading..." }) => (
+  <div className="text-center p-4">
+    <Spinner animation="border" />
+    <p className="mt-2">{text}</p>
+  </div>
+);
+```
+
+### Error Display Pattern
+Consistent error handling UI:
+
+```jsx
+const ErrorAlert = ({ error, onDismiss }) => {
+  if (!error) return null;
+  
+  return (
+    <Alert variant="danger" dismissible={!!onDismiss} onClose={onDismiss}>
+      <Alert.Heading>Error</Alert.Heading>
+      <p>{error}</p>
+    </Alert>
+  );
+};
+
+const ErrorBoundary = ({ children, fallback }) => {
+  const [hasError, setHasError] = useState(false);
+  
+  if (hasError) {
+    return fallback || <Alert variant="danger">Something went wrong.</Alert>;
+  }
+  
+  return children;
+};
+```
+
+### Data Display Patterns
+Consistent table and list patterns:
+
+```jsx
+const DataTable = ({ data, columns, onRowClick }) => (
+  <Table striped bordered hover>
+    <thead>
+      <tr>
+        {columns.map(col => (
+          <th key={col.key}>{col.title}</th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {data.map(row => (
+        <tr key={row.id} onClick={() => onRowClick?.(row)} style={{ cursor: 'pointer' }}>
+          {columns.map(col => (
+            <td key={col.key}>
+              {col.render ? col.render(row[col.key], row) : row[col.key]}
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  </Table>
+);
+```
+
+## Form Handling Patterns
+
+### Controlled Form Pattern
+Standard form handling with validation:
+
+```jsx
+const FormComponent = ({ onSubmit, initialData = {} }) => {
+  const [formData, setFormData] = useState(initialData);
+  const [errors, setErrors] = useState({});
+  
+  const validateForm = () => {
+    const newErrors = {};
+    
+    if (!formData.name?.trim()) {
+      newErrors.name = 'Name is required';
+    }
+    
+    if (!formData.email?.includes('@')) {
+      newErrors.email = 'Valid email is required';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+  
+  const handleChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: null }));
+    }
+  };
+  
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    
+    if (validateForm()) {
+      onSubmit(formData);
+    }
+  };
+  
+  return (
+    <Form onSubmit={handleSubmit}>
+      <Form.Group className="mb-3">
+        <Form.Label>Name</Form.Label>
+        <Form.Control
+          type="text"
+          value={formData.name || ''}
+          onChange={(e) => handleChange('name', e.target.value)}
+          isInvalid={!!errors.name}
+        />
+        <Form.Control.Feedback type="invalid">
+          {errors.name}
+        </Form.Control.Feedback>
+      </Form.Group>
+    </Form>
+  );
+};
+```
+
+## Educational Component Patterns
+
+### Help Me Learn Pattern
+Consistent educational component structure:
+
+```jsx
+const HelpMeLearn = ({ topic, level = 'beginner' }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const content = {
+    beginner: "Basic explanation...",
+    intermediate: "Detailed explanation...",
+    advanced: "Expert-level explanation..."
+  };
+  
+  return (
+    <Card className="mb-3">
+      <Card.Header
+        style={{ cursor: 'pointer' }}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="d-flex justify-content-between align-items-center">
+          <strong>🎓 Help Me Learn: {topic}</strong>
+          <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'}`}></i>
+        </div>
+      </Card.Header>
+      
+      {isExpanded && (
+        <Card.Body>
+          <p>{content[level]}</p>
+          
+          {level !== 'advanced' && (
+            <Button
+              variant="outline-primary"
+              size="sm"
+              onClick={() => setLevel(level === 'beginner' ? 'intermediate' : 'advanced')}
+            >
+              Show {level === 'beginner' ? 'More Details' : 'Advanced Info'}
+            </Button>
+          )}
+        </Card.Body>
+      )}
+    </Card>
+  );
+};
+```
+
+## Utility Function Patterns
+
+### API Utility Functions
+Consistent utility function structure:
+
+```jsx
+// utils/apiUtils.js
+export const createScopeTarget = async (targetData) => {
+  return await apiCall('/api/scope-targets', {
+    method: 'POST',
+    body: JSON.stringify(targetData)
+  });
+};
+
+export const getScanStatus = async (scanId) => {
+  return await apiCall(`/api/scans/${scanId}/status`);
+};
+
+export const deleteScopeTarget = async (targetId) => {
+  return await apiCall(`/api/scope-targets/${targetId}`, {
+    method: 'DELETE'
+  });
+};
+```
+
+### Validation Utilities
+Reusable validation functions:
+
+```jsx
+// utils/validation.js
+export const validateDomain = (domain) => {
+  const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
+  return domainRegex.test(domain);
+};
+
+export const validateUrl = (url) => {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const validateRequired = (value) => {
+  return value !== null && value !== undefined && value.toString().trim() !== '';
+};
+```
+
+## Bootstrap Integration Patterns
+
+### Consistent Bootstrap Usage
+Standard Bootstrap component patterns:
+
+```jsx
+// Card pattern
+const InfoCard = ({ title, children, variant = "light" }) => (
+  <Card className={`mb-3 border-${variant}`}>
+    <Card.Header className={`bg-${variant}`}>
+      <h5 className="mb-0">{title}</h5>
+    </Card.Header>
+    <Card.Body>{children}</Card.Body>
+  </Card>
+);
+
+// Button group pattern
+const ActionButtons = ({ onEdit, onDelete, onView, disabled = false }) => (
+  <ButtonGroup size="sm">
+    <Button variant="outline-primary" onClick={onView} disabled={disabled}>
+      <i className="bi bi-eye"></i> View
+    </Button>
+    <Button variant="outline-secondary" onClick={onEdit} disabled={disabled}>
+      <i className="bi bi-pencil"></i> Edit
+    </Button>
+    <Button variant="outline-danger" onClick={onDelete} disabled={disabled}>
+      <i className="bi bi-trash"></i> Delete
+    </Button>
+  </ButtonGroup>
+);
+```
+
+## Performance Optimization Patterns
+
+### Memoization Pattern
+Optimize re-renders with React.memo and useMemo:
+
+```jsx
+import { memo, useMemo } from 'react';
+
+const ExpensiveComponent = memo(({ data, filters }) => {
+  const filteredData = useMemo(() => {
+    return data.filter(item => 
+      filters.status === 'all' || item.status === filters.status
+    );
+  }, [data, filters.status]);
+  
+  return (
+    <div>
+      {filteredData.map(item => <ItemComponent key={item.id} item={item} />)}
+    </div>
+  );
+});
+```
+
+### Lazy Loading Pattern
+Code splitting for better performance:
+
+```jsx
+import { lazy, Suspense } from 'react';
+
+const HeavyModal = lazy(() => import('./HeavyModal'));
+
+const App = () => (
+  <div>
+    <Suspense fallback={<LoadingSpinner />}>
+      <HeavyModal show={showModal} onHide={() => setShowModal(false)} />
+    </Suspense>
+  </div>
+);
+```
+
+These patterns ensure consistent, maintainable, and performant React code across all frontend components in the Ars0n Framework v2.

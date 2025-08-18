@@ -1,0 +1,270 @@
+---
+alwaysApply: true
+---
+
+# Ars0n Framework v2 - Database Patterns & Conventions
+
+## Database Schema Overview
+
+The Ars0n Framework v2 uses a comprehensive PostgreSQL schema with 50+ tables designed for enterprise-grade asset management and security tool integration.
+
+## Core Database Patterns
+
+### Primary Key Standards
+- **Always use UUID**: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+- **No sequential integers**: UUIDs provide better distributed system compatibility
+- **Consistent naming**: Always use `id` as the primary key column name
+
+### Foreign Key Patterns
+- **Cascade Deletions**: Use `ON DELETE CASCADE` for dependent data
+- **Null on Parent Delete**: Use `ON DELETE SET NULL` for optional relationships
+- **Naming Convention**: `{table_name}_id` (e.g., `scope_target_id`)
+
+```sql
+FOREIGN KEY (scope_target_id) REFERENCES scope_targets(id) ON DELETE CASCADE
+```
+
+### Timestamp Patterns
+- **Created Timestamp**: `created_at TIMESTAMP DEFAULT NOW()`
+- **Updated Timestamp**: `updated_at TIMESTAMP DEFAULT NOW()`
+- **Always include**: Every table should have created_at, important tables should have updated_at
+
+### JSONB Usage
+- **Complex Configuration**: Store tool configurations as JSONB
+- **Flexible Metadata**: Use JSONB for extensible data structures
+- **Array Storage**: Use JSONB for arrays of related data
+
+```sql
+config_snapshot JSONB NOT NULL,
+findings_json JSONB,
+selected_domains JSONB NOT NULL DEFAULT '[]'
+```
+
+## Table Categories & Patterns
+
+### 1. Core Entity Tables
+These tables represent the main business entities:
+
+- `scope_targets` - Target organizations (Company, Wildcard, URL)
+- `user_settings` - Application configuration
+- `api_keys` - External service credentials
+- `auto_scan_config` - Automated workflow settings
+
+**Pattern**: Simple structure with UUID primary key and basic business fields.
+
+### 2. Scan Management Tables
+These tables track security tool execution:
+
+- `{tool_name}_scans` (e.g., `amass_scans`, `nuclei_scans`)
+- `auto_scan_sessions` - Workflow execution tracking
+- `auto_scan_state` - Current workflow state
+
+**Pattern**: 
+```sql
+CREATE TABLE {tool_name}_scans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scan_id UUID NOT NULL UNIQUE,
+    scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE,
+    status VARCHAR(50) NOT NULL,
+    result TEXT,
+    error TEXT,
+    stdout TEXT,
+    stderr TEXT,
+    command TEXT,
+    execution_time TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    auto_scan_session_id UUID REFERENCES auto_scan_sessions(id) ON DELETE SET NULL
+);
+```
+
+### 3. Asset Storage Tables
+These tables store discovered security assets:
+
+- `consolidated_attack_surface_assets` - Unified asset management
+- `target_urls` - Web application endpoints
+- `consolidated_subdomains` - Discovered subdomains
+- `live_web_servers` - Active web services
+
+**Pattern**: Comprehensive asset metadata with relationship tracking.
+
+### 4. Configuration Tables
+These tables store tool-specific configurations:
+
+- `{tool_name}_configs` (e.g., `amass_enum_configs`, `nuclei_configs`)
+- `cloud_enum_configs` - Cloud enumeration settings
+
+**Pattern**: JSONB arrays for flexible configuration storage.
+
+## Index Patterns
+
+### Performance Indexes
+Always create indexes on frequently queried columns:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_{table_name}_{column_name} ON {table_name}({column_name});
+```
+
+### Common Index Patterns
+- **Scope Target Lookups**: `idx_{table}_scope_target_id`
+- **Scan ID Lookups**: `idx_{table}_scan_id`
+- **Asset Identification**: `idx_{table}_asset_identifier`
+- **Time-based Queries**: `idx_{table}_created_at`
+
+## Data Validation Patterns
+
+### Enum Constraints
+Use CHECK constraints for limited value sets:
+
+```sql
+type VARCHAR(50) NOT NULL CHECK (type IN ('Company', 'Wildcard', 'URL')),
+status VARCHAR(50) NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed'))
+```
+
+### Required vs Optional Fields
+- **Required Business Data**: NOT NULL constraints
+- **Tool Output Data**: Allow NULL (tools may fail or return partial data)
+- **Metadata Fields**: Allow NULL for extensibility
+
+## Relationship Patterns
+
+### One-to-Many Relationships
+Most scan results relate to a single scope target:
+
+```sql
+scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+```
+
+### Many-to-Many Relationships
+Use junction tables for complex relationships:
+
+```sql
+CREATE TABLE consolidated_attack_surface_relationships (
+    parent_asset_id UUID REFERENCES consolidated_attack_surface_assets(id) ON DELETE CASCADE,
+    child_asset_id UUID REFERENCES consolidated_attack_surface_assets(id) ON DELETE CASCADE,
+    relationship_type VARCHAR(50) NOT NULL
+);
+```
+
+### Self-Referencing Relationships
+For hierarchical data structures:
+
+```sql
+parent_asset_id UUID REFERENCES consolidated_attack_surface_assets(id)
+```
+
+## Migration Patterns
+
+### Schema Updates
+Use `ALTER TABLE` statements for non-destructive changes:
+
+```sql
+ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS new_feature TEXT DEFAULT '';
+```
+
+### Data Migration
+Include `INSERT ... WHERE NOT EXISTS` for default data:
+
+```sql
+INSERT INTO user_settings (id)
+SELECT gen_random_uuid()
+WHERE NOT EXISTS (SELECT 1 FROM user_settings LIMIT 1);
+```
+
+### Safe Deletions
+Drop unused tables/columns safely:
+
+```sql
+DROP TABLE IF EXISTS obsolete_table_name CASCADE;
+```
+
+## Query Patterns
+
+### Efficient Lookups
+Use prepared statements with pgx:
+
+```go
+query := `SELECT id, status FROM amass_scans WHERE scope_target_id = $1 ORDER BY created_at DESC`
+rows, err := dbPool.Query(context.Background(), query, scopeTargetID)
+```
+
+### Complex Asset Queries
+Join tables efficiently for asset discovery:
+
+```sql
+SELECT a.*, r.relationship_type 
+FROM consolidated_attack_surface_assets a
+LEFT JOIN consolidated_attack_surface_relationships r ON a.id = r.child_asset_id
+WHERE a.scope_target_id = $1 AND a.asset_type = 'live_web_server'
+```
+
+### Aggregation Queries
+Count and summarize scan results:
+
+```sql
+SELECT COUNT(*) as total_assets, asset_type 
+FROM consolidated_attack_surface_assets 
+WHERE scope_target_id = $1 
+GROUP BY asset_type
+```
+
+## Error Handling Patterns
+
+### Transaction Management
+Use transactions for multi-table operations:
+
+```go
+tx, err := dbPool.Begin(context.Background())
+if err != nil {
+    return err
+}
+defer tx.Rollback(context.Background())
+
+// ... database operations ...
+
+return tx.Commit(context.Background())
+```
+
+### Constraint Violations
+Handle unique constraint violations gracefully:
+
+```go
+_, err := dbPool.Exec(context.Background(), query, params...)
+if err != nil {
+    if strings.Contains(err.Error(), "duplicate key") {
+        // Handle duplicate entry
+        return nil
+    }
+    return fmt.Errorf("database error: %w", err)
+}
+```
+
+## Performance Considerations
+
+### Connection Pooling
+Configure pgx pool settings:
+
+```go
+config, err := pgxpool.ParseConfig(os.Getenv("DATABASE_URL"))
+config.MaxConns = 30
+config.MinConns = 5
+dbPool, err := pgxpool.ConnectConfig(context.Background(), config)
+```
+
+### Batch Operations
+Use batch operations for bulk inserts:
+
+```go
+batch := &pgx.Batch{}
+for _, item := range items {
+    batch.Queue("INSERT INTO table_name (col1, col2) VALUES ($1, $2)", item.Col1, item.Col2)
+}
+results := dbPool.SendBatch(context.Background(), batch)
+```
+
+### Query Optimization
+- Use EXPLAIN ANALYZE for slow queries
+- Create partial indexes for filtered queries
+- Use appropriate column types (VARCHAR vs TEXT)
+- Normalize data appropriately (avoid over-normalization)
+
+This pattern guide ensures consistent database design across all new features and maintains the enterprise-grade data management capabilities of the Ars0n Framework v2.

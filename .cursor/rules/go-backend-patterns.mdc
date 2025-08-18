@@ -1,0 +1,436 @@
+---
+alwaysApply: true
+---
+
+# Ars0n Framework v2 - Go Backend Patterns
+
+## Go Code Organization
+
+The Go backend follows a structured approach with clear separation of concerns and consistent patterns across all security tool integrations.
+
+## Project Structure Patterns
+
+### Main Package Structure
+```
+server/
+├── main.go                 # Application entry point
+├── database.go            # Database schema and initialization
+├── types.go              # Common type definitions
+├── go.mod                # Go module definition
+├── models/               # Data models
+│   └── apiKey.go
+├── utils/                # Tool-specific utilities
+│   ├── amassUtils.go
+│   ├── nucleiUtils.go
+│   └── ...
+└── nuclei/               # Specialized integrations
+    └── executeAndParseNucleiSSLScan.go
+```
+
+### File Naming Conventions
+- **Tool Utilities**: `{toolName}Utils.go` (e.g., `amassUtils.go`, `httpxUtils.go`)
+- **Common Utilities**: Descriptive names ending in `Utils.go`
+- **Models**: Clear entity names (e.g., `apiKey.go`, `scanResult.go`)
+- **Main Files**: Single responsibility per file
+
+## Go Code Patterns
+
+### Package Declaration
+Always start with package declaration and organize imports:
+
+```go
+package main  // or package utils
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+    
+    "github.com/google/uuid"
+    "github.com/gorilla/mux"
+    "github.com/jackc/pgx/v5/pgxpool"
+)
+```
+
+### Database Pool Pattern
+Initialize and use database pool consistently:
+
+```go
+var dbPool *pgxpool.Pool
+
+func InitDB(pool *pgxpool.Pool) {
+    dbPool = pool
+}
+
+// Usage in functions
+func SomeFunction() error {
+    query := `SELECT id FROM table_name WHERE condition = $1`
+    var id string
+    err := dbPool.QueryRow(context.Background(), query, param).Scan(&id)
+    return err
+}
+```
+
+### Error Handling Patterns
+Comprehensive error handling with context:
+
+```go
+func ProcessScanResult(scanID string) error {
+    if scanID == "" {
+        return fmt.Errorf("scanID cannot be empty")
+    }
+    
+    result, err := executeTool(scanID)
+    if err != nil {
+        log.Printf("[ERROR] Failed to execute tool for scan %s: %v", scanID, err)
+        return fmt.Errorf("tool execution failed: %w", err)
+    }
+    
+    if err := parseAndStore(result); err != nil {
+        log.Printf("[ERROR] Failed to parse results for scan %s: %v", scanID, err)
+        return fmt.Errorf("result parsing failed: %w", err)
+    }
+    
+    log.Printf("[INFO] Successfully processed scan %s", scanID)
+    return nil
+}
+```
+
+## HTTP Handler Patterns
+
+### RESTful Endpoint Structure
+Consistent handler patterns for all endpoints:
+
+```go
+func HandleScanRequest(w http.ResponseWriter, r *http.Request) {
+    // Set CORS headers
+    w.Header().Set("Access-Control-Allow-Origin", "*")
+    w.Header().Set("Content-Type", "application/json")
+    
+    // Extract and validate parameters
+    vars := mux.Vars(r)
+    scanID := vars["scanId"]
+    if scanID == "" {
+        http.Error(w, "Missing scan ID", http.StatusBadRequest)
+        return
+    }
+    
+    // Business logic
+    result, err := processRequest(scanID)
+    if err != nil {
+        log.Printf("[ERROR] Request processing failed: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    
+    // Send response
+    if err := json.NewEncoder(w).Encode(result); err != nil {
+        log.Printf("[ERROR] Failed to encode response: %v", err)
+        http.Error(w, "Encoding error", http.StatusInternalServerError)
+    }
+}
+```
+
+### CORS Pattern
+Standard CORS handling for all endpoints:
+
+```go
+w.Header().Set("Access-Control-Allow-Origin", "*")
+w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+if r.Method == "OPTIONS" {
+    w.WriteHeader(http.StatusOK)
+    return
+}
+```
+
+## Docker Container Execution Patterns
+
+### Container Command Execution
+Standardized pattern for executing tools in containers:
+
+```go
+func ExecuteToolInContainer(containerName, command string, args []string) (string, error) {
+    // Build docker exec command
+    cmdArgs := append([]string{"exec", containerName, command}, args...)
+    cmd := exec.Command("docker", cmdArgs...)
+    
+    // Set timeout context
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+    defer cancel()
+    cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+    
+    // Execute and capture output
+    var stdout, stderr bytes.Buffer
+    cmd.Stdout = &stdout
+    cmd.Stderr = &stderr
+    
+    err := cmd.Run()
+    if err != nil {
+        return "", fmt.Errorf("command failed: %v, stderr: %s", err, stderr.String())
+    }
+    
+    return stdout.String(), nil
+}
+```
+
+### Tool-Specific Execution Pattern
+Each tool follows a consistent execution pattern:
+
+```go
+func InitiateToolScan(domain, scopeTargetID string) (string, error) {
+    // Generate scan ID
+    scanID := uuid.New().String()
+    
+    // Insert initial scan record
+    query := `INSERT INTO tool_scans (scan_id, domain, status, scope_target_id) 
+              VALUES ($1, $2, 'pending', $3)`
+    _, err := dbPool.Exec(context.Background(), query, scanID, domain, scopeTargetID)
+    if err != nil {
+        return "", fmt.Errorf("failed to create scan record: %w", err)
+    }
+    
+    // Execute tool asynchronously
+    go func() {
+        if err := executeAndParseTool(scanID, domain); err != nil {
+            updateScanStatus(scanID, "failed", err.Error())
+        } else {
+            updateScanStatus(scanID, "completed", "")
+        }
+    }()
+    
+    return scanID, nil
+}
+```
+
+## Database Interaction Patterns
+
+### Query Execution Pattern
+Consistent database query patterns:
+
+```go
+func GetScanStatus(scanID string) (*ScanStatus, error) {
+    query := `SELECT id, scan_id, status, result, error, created_at 
+              FROM tool_scans WHERE scan_id = $1`
+    
+    var scan ScanStatus
+    err := dbPool.QueryRow(context.Background(), query, scanID).Scan(
+        &scan.ID, &scan.ScanID, &scan.Status, 
+        &scan.Result, &scan.Error, &scan.CreatedAt,
+    )
+    
+    if err != nil {
+        if err == pgx.ErrNoRows {
+            return nil, fmt.Errorf("scan not found: %s", scanID)
+        }
+        return nil, fmt.Errorf("database query failed: %w", err)
+    }
+    
+    return &scan, nil
+}
+```
+
+### Batch Insert Pattern
+For inserting multiple related records:
+
+```go
+func BatchInsertResults(scanID string, results []Result) error {
+    if len(results) == 0 {
+        return nil
+    }
+    
+    tx, err := dbPool.Begin(context.Background())
+    if err != nil {
+        return fmt.Errorf("failed to begin transaction: %w", err)
+    }
+    defer tx.Rollback(context.Background())
+    
+    query := `INSERT INTO scan_results (scan_id, data, type) VALUES ($1, $2, $3)`
+    for _, result := range results {
+        _, err := tx.Exec(context.Background(), query, scanID, result.Data, result.Type)
+        if err != nil {
+            return fmt.Errorf("failed to insert result: %w", err)
+        }
+    }
+    
+    return tx.Commit(context.Background())
+}
+```
+
+## Type Definition Patterns
+
+### Scan Status Structures
+Consistent structure for all scan status types:
+
+```go
+type BaseScanStatus struct {
+    ID                string         `json:"id"`
+    ScanID            string         `json:"scan_id"`
+    Status            string         `json:"status"`
+    Result            sql.NullString `json:"result,omitempty"`
+    Error             sql.NullString `json:"error,omitempty"`
+    StdOut            sql.NullString `json:"stdout,omitempty"`
+    StdErr            sql.NullString `json:"stderr,omitempty"`
+    Command           sql.NullString `json:"command,omitempty"`
+    ExecTime          sql.NullString `json:"execution_time,omitempty"`
+    CreatedAt         time.Time      `json:"created_at"`
+    ScopeTargetID     string         `json:"scope_target_id"`
+    AutoScanSessionID sql.NullString `json:"auto_scan_session_id"`
+}
+
+// Tool-specific types embed the base
+type AmassScanStatus struct {
+    BaseScanStatus
+    Domain string `json:"domain"`
+}
+```
+
+### Response Structures
+Consistent API response structures:
+
+```go
+type APIResponse struct {
+    Status    string      `json:"status"`
+    Data      interface{} `json:"data,omitempty"`
+    Message   string      `json:"message,omitempty"`
+    Error     string      `json:"error,omitempty"`
+    Timestamp time.Time   `json:"timestamp"`
+}
+
+func SendJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(statusCode)
+    
+    response := APIResponse{
+        Status:    "success",
+        Data:      data,
+        Timestamp: time.Now(),
+    }
+    
+    if statusCode >= 400 {
+        response.Status = "error"
+        if str, ok := data.(string); ok {
+            response.Error = str
+            response.Data = nil
+        }
+    }
+    
+    json.NewEncoder(w).Encode(response)
+}
+```
+
+## Logging Patterns
+
+### Structured Logging
+Consistent logging throughout the application:
+
+```go
+func logInfo(message string, args ...interface{}) {
+    log.Printf("[INFO] "+message, args...)
+}
+
+func logError(message string, err error, args ...interface{}) {
+    log.Printf("[ERROR] "+message+": %v", append(args, err)...)
+}
+
+func logDebug(message string, args ...interface{}) {
+    log.Printf("[DEBUG] "+message, args...)
+}
+
+// Usage
+logInfo("Starting scan for domain %s with scan ID %s", domain, scanID)
+logError("Failed to parse tool output for scan %s", err, scanID)
+```
+
+## Tool Result Parsing Patterns
+
+### Generic Parser Structure
+Consistent parsing patterns for all tools:
+
+```go
+func ParseToolOutput(scanID, rawOutput string) error {
+    if rawOutput == "" {
+        logInfo("No output to parse for scan %s", scanID)
+        return nil
+    }
+    
+    lines := strings.Split(rawOutput, "\n")
+    var results []ParsedResult
+    
+    for lineNum, line := range lines {
+        line = strings.TrimSpace(line)
+        if line == "" {
+            continue
+        }
+        
+        result, err := parseSpecificLine(line)
+        if err != nil {
+            logError("Failed to parse line %d for scan %s", err, lineNum, scanID)
+            continue
+        }
+        
+        if result != nil {
+            results = append(results, *result)
+        }
+    }
+    
+    return storeResults(scanID, results)
+}
+```
+
+## Configuration Management Patterns
+
+### Environment Variable Handling
+Consistent environment variable usage:
+
+```go
+func getEnvOrDefault(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
+func mustGetEnv(key string) string {
+    value := os.Getenv(key)
+    if value == "" {
+        log.Fatalf("Environment variable %s is required", key)
+    }
+    return value
+}
+
+// Usage
+dbURL := mustGetEnv("DATABASE_URL")
+port := getEnvOrDefault("SERVER_PORT", "8443")
+```
+
+## Goroutine Management Patterns
+
+### Safe Goroutine Execution
+Proper error handling in goroutines:
+
+```go
+func ExecuteAsync(fn func() error) {
+    go func() {
+        defer func() {
+            if r := recover(); r != nil {
+                log.Printf("[ERROR] Goroutine panic: %v", r)
+            }
+        }()
+        
+        if err := fn(); err != nil {
+            log.Printf("[ERROR] Async operation failed: %v", err)
+        }
+    }()
+}
+
+// Usage
+ExecuteAsync(func() error {
+    return processLongRunningTask(scanID)
+})
+```
+
+These patterns ensure consistent, maintainable, and scalable Go code across all security tool integrations in the Ars0n Framework v2.

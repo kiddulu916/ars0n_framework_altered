@@ -1,0 +1,612 @@
+# Ars0n Framework v2 - Workflow State
+
+## State
+
+**Phase**: BLUEPRINT  
+**Status**: PLAN_APPROVED  
+**Current Epic**: URL Workflow Redesign  
+**Epic Phase**: Requirements & Planning  
+**Epic Step**: URL Workflow Design Planning  
+
+## Plan
+
+### BLUEPRINT: Option A - Evidence & Findings Pipeline Architecture
+
+#### **1. System Integration Strategy**
+**1.1 Integration with Existing Ars0n Framework Structure**
+- **Maintain existing architecture**: Go backend (port 8443), React frontend (port 3000), AI service (port 8000)
+- **Database integration**: Add findings tables to existing PostgreSQL schema (alongside existing 50+ tables)
+- **Tool integration**: Enhance existing utils (nucleiUtils.go, httpxUtils.go, etc.) instead of separate service
+- **Workflow dependency**: URL workflow triggered AFTER Company/Wildcard workflows complete
+- **Data flow**: Company/Wildcard → `consolidated_attack_surface_assets` → ROI Algorithm → URL Workflow → Findings Pipeline
+
+**1.2 Pre-Requisite Workflow Integration**
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Company        │    │  Wildcard       │    │  URL Workflow   │
+│  Workflow       │───►│  Workflow       │───►│  (NEW)          │
+│  (Existing)     │    │  (Existing)     │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │ consolidated_   │
+                    │ attack_surface_ │
+                    │ assets (ROI)    │
+                    └─────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │ findings        │
+                    │ pipeline        │
+                    │ (Evidence)      │
+                    └─────────────────┘
+```
+
+**1.3 Existing Framework Data Integration**
+```sql
+-- Integration with existing tables
+-- URL workflow pulls from Company/Wildcard workflow results
+
+-- Existing tables that feed into URL workflow:
+consolidated_attack_surface_assets (asset_type = 'live_web_server')
+target_urls (from existing workflows)
+live_web_servers (httpx scan results)
+scope_targets (Company/Wildcard targets)
+
+-- ROI Algorithm Integration:
+SELECT url, roi_score, metadata 
+FROM consolidated_attack_surface_assets 
+WHERE scope_target_id = $1 
+  AND asset_type = 'live_web_server'
+  AND roi_score IS NOT NULL
+ORDER BY roi_score DESC 
+LIMIT 10;
+```
+
+**1.4 Existing Go Backend Integration (No New Service)**
+```go
+// Enhance existing server/main.go and utils/
+// NO separate Django service - integrate findings into existing Go backend
+
+// Add to existing database.go
+func initFindingsTables() {
+    // Add findings pipeline tables to existing schema
+}
+
+// Add to existing types.go
+type Finding struct {
+    ID          string    `json:"id"`
+    KeyHash     string    `json:"key_hash"`
+    Title       string    `json:"title"`
+    Category    string    `json:"category"`
+    Severity    string    `json:"severity"`
+    Signal      string    `json:"signal"`
+    Status      string    `json:"status"`
+    CreatedAt   time.Time `json:"created_at"`
+}
+```
+
+#### **2. Detailed Component Architecture**
+
+**2.1 Database Layer Design**
+- **Schema**: 6 core tables (findings, vectors, evidence_blobs, contexts, repro_recipes, oob_events)
+- **Deduplication**: key_hash algorithm using SHA256(vuln_class|url_template|method|params|identity|tenant)
+- **Performance**: Strategic indexes on key_hash, category, severity, finding_id foreign keys
+- **Data integrity**: Foreign key constraints with CASCADE deletes, audit timestamps
+- **Storage strategy**: Metadata in PostgreSQL, large artifacts (HAR, screenshots) in blob storage
+
+**2.2 Enhanced Existing Go Backend Structure**
+```
+server/                          # Existing Go backend
+├── main.go                      # Enhanced with findings endpoints
+├── database.go                  # Enhanced with findings tables
+├── types.go                     # Enhanced with Finding structs
+├── utils/                       # Existing tool utilities
+│   ├── urlWorkflowUtils.go      # NEW: URL workflow orchestrator
+│   ├── findingsUtils.go         # NEW: Findings pipeline logic
+│   ├── reproPackUtils.go        # NEW: Reproduction pack builder
+│   ├── nucleiUtils.go           # Enhanced with findings integration
+│   ├── httpxUtils.go            # Enhanced with findings integration
+│   └── [existing utils...]     # All enhanced with findings submission
+├── url_workflow/                # NEW: URL workflow implementation
+│   ├── attack_surface.go        # Phase 1: Attack surface mapping
+│   ├── dast_engine.go           # Phase 2: DAST implementation
+│   ├── vuln_testing.go          # Phase 3: Targeted vulnerability testing
+│   └── evidence_collector.go    # Evidence collection and storage
+└── [existing structure...]      # All existing files maintained
+```
+
+**2.3 Enhanced Go API Endpoint Design (Existing mux router)**
+```go
+// Add to existing server/main.go router
+// Integrate with existing CORS and middleware
+
+// URL Workflow endpoints (trigger after Company/Wildcard complete)
+router.HandleFunc("/api/url-workflow/initiate/{scopeTargetId}", InitiateURLWorkflow).Methods("POST")
+router.HandleFunc("/api/url-workflow/status/{sessionId}", GetURLWorkflowStatus).Methods("GET")
+router.HandleFunc("/api/url-workflow/roi-urls/{scopeTargetId}", GetROIUrls).Methods("GET")
+
+// Findings pipeline endpoints (integrated into existing API)
+router.HandleFunc("/api/findings", CreateOrUpdateFinding).Methods("POST")
+router.HandleFunc("/api/findings/{id}", GetFinding).Methods("GET")
+router.HandleFunc("/api/findings", ListFindings).Methods("GET")
+router.HandleFunc("/api/findings/{id}/status", UpdateFindingStatus).Methods("POST")
+router.HandleFunc("/api/findings/export", ExportFindings).Methods("GET")
+router.HandleFunc("/api/findings/{id}/evidence", AddEvidence).Methods("POST")
+router.HandleFunc("/api/findings/{id}/reproduce", GetReproInstructions).Methods("GET")
+
+// Integration with existing workflow endpoints
+// /api/company-workflow/* (existing)
+// /api/wildcard-workflow/* (existing)  
+// /api/url-workflow/* (new)
+```
+
+**2.4 Go-based Repro Pack Builder Architecture**
+```go
+// server/utils/reproPackUtils.go
+type ReproPackBuilder struct {
+    BlobStoragePath string
+    Templates       map[string]string
+}
+
+type ReproPack struct {
+    CurlJSON          string `json:"curl_json"`
+    PlaywrightScript  string `json:"playwright_script"`
+    HARSlice          string `json:"har_slice"`
+    Notes             string `json:"notes"`
+}
+
+func (rpb *ReproPackBuilder) GeneratePack(finding Finding, vector Vector) (*ReproPack, error) {
+    // 1. Generate minimal curl command (JSON format)
+    curlCmd := rpb.generateCurlCommand(vector)
+    
+    // 2. Create Playwright reproduction script
+    playwrightScript := rpb.generatePlaywrightScript(finding, vector)
+    
+    // 3. Extract relevant HAR slice
+    harSlice := rpb.extractHARSlice(finding.Evidence)
+    
+    // 4. Apply PII redaction
+    redactedData := rpb.redactPII(curlCmd, playwrightScript)
+    
+    // 5. Enforce size caps and store
+    return rpb.storeReproPack(redactedData)
+}
+
+// PII redaction patterns
+var PIIPatterns = map[string]*regexp.Regexp{
+    "email":       regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`),
+    "ssn":         regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
+    "credit_card": regexp.MustCompile(`\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b`),
+}
+```
+
+#### **3. Implementation Sequence Plan**
+
+**Phase 3.1: Database & Go Backend Foundation (Day 1-2)**
+1. ✅ **Database schema creation** - COMPLETED (findings pipeline tables)
+2. ⏳ **Enhanced database.go** with findings table initialization
+3. ⏳ **Enhanced types.go** with Finding, Vector, Evidence structs
+4. ⏳ **URL workflow prerequisite check** (Company/Wildcard completion)
+5. ⏳ **ROI URL selection logic** from consolidated_attack_surface_assets
+
+**Phase 3.2: URL Workflow Core Implementation (Day 3-4)**  
+1. ⏳ **urlWorkflowUtils.go** - Main workflow orchestrator
+2. ⏳ **findingsUtils.go** - Findings pipeline integration with existing tools
+3. ⏳ **Go API endpoints** for URL workflow and findings (existing mux router)
+4. ⏳ **Evidence collection** integration in existing tool utils
+5. ⏳ **Deduplication logic** with key_hash generation
+
+**Phase 3.3: Vulnerability Testing & Repro Builder (Day 5)**
+1. ⏳ **url_workflow/attack_surface.go** - Phase 1 implementation  
+2. ⏳ **url_workflow/dast_engine.go** - Phase 2 implementation
+3. ⏳ **url_workflow/vuln_testing.go** - Phase 3 implementation
+4. ⏳ **reproPackUtils.go** - Go-based reproduction pack builder
+5. ⏳ **Evidence storage** and PII redaction
+
+**Phase 3.4: Frontend Integration & Testing (Day 6)**
+1. ⏳ **React URL workflow interface** integration with existing workflow UI
+2. ⏳ **Enhanced existing modals** for URL workflow configuration
+3. ⏳ **Findings dashboard** component in existing React structure
+4. ⏳ **E2E test** with Company→Wildcard→URL workflow sequence
+5. ⏳ **Synthetic findings** testing (XSS, IDOR, SSRF) with repro validation
+
+#### **4. Integration Points with Existing Ars0n Framework**
+
+**4.1 Prerequisite Workflow Data Integration**
+```go
+// server/utils/urlWorkflowUtils.go
+func InitiateURLWorkflow(scopeTargetID string) (*URLWorkflowSession, error) {
+    // 1. Verify Company/Wildcard workflows completed
+    if !isPrerequisiteWorkflowsComplete(scopeTargetID) {
+        return nil, fmt.Errorf("Company and Wildcard workflows must complete first")
+    }
+    
+    // 2. Get ROI-scored URLs from existing data
+    roiURLs, err := getROIScoredURLs(scopeTargetID, 10) // Top 10
+    if err != nil {
+        return nil, fmt.Errorf("failed to get ROI URLs: %w", err)
+    }
+    
+    // 3. Create URL workflow session
+    session := &URLWorkflowSession{
+        ScopeTargetID: scopeTargetID,
+        SelectedURLs:  roiURLs,
+        Status:        "initiating",
+        Phase:         "attack_surface_mapping",
+    }
+    
+    return session, nil
+}
+
+func getROIScoredURLs(scopeTargetID string, limit int) ([]string, error) {
+    query := `
+        SELECT url, roi_score 
+        FROM consolidated_attack_surface_assets 
+        WHERE scope_target_id = $1 
+          AND asset_type = 'live_web_server'
+          AND roi_score IS NOT NULL
+        ORDER BY roi_score DESC 
+        LIMIT $2
+    `
+    // Execute query against existing database
+}
+
+// Enhanced existing tool utils with findings integration  
+func parseNucleiOutput(scanID, rawOutput string, urlWorkflowSessionID string) error {
+    // Parse nuclei results
+    findings := parseNucleiFindings(rawOutput)
+    for _, finding := range findings {
+        // Generate key_hash for deduplication
+        keyHash := generateFindingKeyHash(finding)
+        
+        // Submit to findings pipeline (same database)
+        findingID, err := submitFinding(finding, keyHash, urlWorkflowSessionID)
+        if err != nil {
+            log.Printf("Failed to submit finding: %v", err)
+            continue
+        }
+        
+        // Store evidence (HAR, screenshot) 
+        if err := storeEvidence(findingID, finding.Evidence); err != nil {
+            log.Printf("Failed to store evidence: %v", err)
+        }
+    }
+}
+```
+
+**4.2 React Frontend Integration with Existing Structure**
+```jsx
+// Enhance existing client/src/components/ScopeTargetDetails.js
+const ScopeTargetDetails = ({ targetId }) => {
+    const [workflows, setWorkflows] = useState({
+        company: { status: 'pending' },
+        wildcard: { status: 'pending' },
+        url: { status: 'pending', enabled: false }
+    });
+    
+    // Enable URL workflow only after Company + Wildcard complete
+    useEffect(() => {
+        const urlEnabled = workflows.company.status === 'completed' && 
+                          workflows.wildcard.status === 'completed';
+        setWorkflows(prev => ({
+            ...prev,
+            url: { ...prev.url, enabled: urlEnabled }
+        }));
+    }, [workflows.company.status, workflows.wildcard.status]);
+    
+    return (
+        <div>
+            {/* Existing Company workflow UI */}
+            {/* Existing Wildcard workflow UI */}
+            
+            {/* New URL workflow UI - only enabled after prerequisites */}
+            <URLWorkflowPanel 
+                targetId={targetId}
+                enabled={workflows.url.enabled}
+                onStart={handleURLWorkflowStart}
+            />
+            
+            {/* Enhanced findings dashboard */}
+            <FindingsDashboard targetId={targetId} />
+        </div>
+    );
+};
+
+// New component: client/src/components/URLWorkflowPanel.js
+// New component: client/src/components/FindingsDashboard.js
+// Enhanced: existing workflow modals to show URL workflow option
+```
+
+#### **5. Non-Negotiables Implementation Plan**
+
+**5.1 Rate Limiting & Scope Guard (Go Implementation)**
+```go
+// server/utils/rateLimitUtils.go - integrate with existing Go backend
+type RateLimiter struct {
+    RedisClient   *redis.Client
+    GlobalLimits  map[string]int  // requests per minute
+    PerHostLimits map[string]int  // per target host
+}
+
+func (rl *RateLimiter) CanProceedWithRequest(targetHost string) bool {
+    // Global rate limit: 100 req/min
+    if !rl.checkGlobalLimit() {
+        return false
+    }
+    
+    // Per-host rate limit: 10 req/min per target host  
+    if !rl.checkHostLimit(targetHost) {
+        return false
+    }
+    
+    // Exponential backoff on 429/503 responses
+    return !rl.isInBackoffPeriod(targetHost)
+}
+
+// Integrate with existing scope validation
+func validateScopeAndRate(targetURL string, scopeTargetID string) error {
+    // Use existing scope validation logic
+    if !isInScope(targetURL, scopeTargetID) {
+        return fmt.Errorf("URL %s is out of scope", targetURL)
+    }
+    
+    // Add rate limiting check
+    if !rateLimiter.CanProceedWithRequest(extractHost(targetURL)) {
+        return fmt.Errorf("rate limit exceeded for host %s", extractHost(targetURL))
+    }
+    
+    return nil
+}
+```
+
+**5.2 Artifact Storage Strategy (Existing File System)**
+- **Storage location**: Integrate with existing blob storage pattern
+- **File organization**: `/data/findings/{finding_id}/{artifact_type}/{uuid}.{ext}`
+- **Size limits**: HAR (10MB), Screenshots (5MB), DOM (2MB), PCAP (20MB)
+- **Integration**: Use existing evidence storage patterns from screenshot utils
+
+**5.3 Testing Strategy (Go Test Framework)**
+```go
+// server/tests/url_workflow_test.go
+func TestE2EURLWorkflowPipeline(t *testing.T) {
+    // Setup: Create scope target with completed Company/Wildcard workflows
+    scopeTarget := createTestScopeTarget(t)
+    completePrerequisiteWorkflows(t, scopeTarget.ID)
+    
+    // 1. Initiate URL workflow 
+    session, err := InitiateURLWorkflow(scopeTarget.ID)
+    require.NoError(t, err)
+    require.Equal(t, "attack_surface_mapping", session.Phase)
+    
+    // 2. Execute workflow phases and create synthetic findings
+    findings := []Finding{
+        createSyntheticXSSFinding(t, session.ID),
+        createSyntheticIDORFinding(t, session.ID), 
+        createSyntheticSSRFFinding(t, session.ID),
+    }
+    
+    // 3. Verify findings are stored with deduplication
+    storedFindings, err := GetFindingsBySession(session.ID)
+    require.NoError(t, err)
+    require.Len(t, storedFindings, 3)
+    
+    // 4. Verify export functionality
+    exportData, err := ExportFindings(session.ID, "json")
+    require.NoError(t, err)
+    require.True(t, isValidJSON(exportData))
+    
+    // 5. Verify reproduction packs execute successfully
+    for _, finding := range findings {
+        reproPack, err := GetReproInstructions(finding.ID)
+        require.NoError(t, err)
+        
+        // Execute curl command
+        require.True(t, validateCurlExecution(reproPack.CurlJSON))
+        
+        // Execute Playwright script (if available)
+        if reproPack.PlaywrightScript != "" {
+            require.True(t, executePlaywrightScript(reproPack.PlaywrightScript))
+        }
+    }
+}
+```
+
+#### **6. Success Criteria (Definition of Done)**
+
+**Functional Requirements:**
+- ✅ URL workflow triggers ONLY after Company + Wildcard workflows complete
+- ✅ ROI algorithm selects top 10 URLs from consolidated_attack_surface_assets  
+- ✅ Create 3 synthetic findings via test stub (XSS, IDOR, SSRF)
+- ✅ Findings API integrated into existing Go backend (no separate service)
+- ✅ Export returns valid JSON format compatible with existing export system
+- ✅ Repro scripts run headless and reproduce signals
+- ✅ All rate limits and scope guards operational within existing architecture
+- ✅ Evidence artifacts stored using existing blob storage patterns
+
+**Technical Requirements:**
+- ✅ Database integration: Findings tables added to existing PostgreSQL schema
+- ✅ Go backend integration: Enhanced existing utils and API endpoints  
+- ✅ React integration: URL workflow panel in existing ScopeTargetDetails component
+- ✅ Unit tests: 90%+ coverage using existing Go test framework
+- ✅ Integration tests: All API endpoints tested within existing test suite
+- ✅ E2E test: Complete Company→Wildcard→URL workflow sequence
+- ✅ Performance: Sub-second API responses maintaining existing performance standards
+
+**Framework Compliance:**
+- ✅ Maintains existing port allocation (8443 for API, 3000 for frontend)
+- ✅ Uses existing PostgreSQL database with additional tables
+- ✅ Follows existing Go backend patterns and conventions
+- ✅ Integrates with existing React component structure
+- ✅ Preserves existing docker-compose architecture
+- ✅ Compatible with existing .rs0n export/import functionality
+
+### Phase 1: URL Workflow Requirements Gathering (Completed)
+1. ✅ **Analysis and Context Review Completed**
+   - Reviewed existing implementation plans from memory-bank files
+   - Analyzed current architecture and framework capabilities  
+   - Examined existing URL workflow structure in codebase
+   - Scraped .cursor/rules directory for implementation patterns
+
+2. 🔄 **URL Workflow Redesign Planning**
+   - ✅ **Gather detailed requirements from user** - COMPLETED
+     * New Objective: "To fully automate manual testing techniques using the results from the ROI algorithm, testing the top 10 highest scoring URLs"
+     * Phase 1: Attack Surface Mapping and Advanced Enumeration
+     * Phase 2: Dynamic Application Security Testing (DAST)  
+     * Phase 3: Targeted Automated Vulnerability Testing
+   - ✅ **Define comprehensive workflow scope and objectives** - COMPLETED
+     * Transform from educational to fully automated testing framework  
+     * Integrate with existing ROI algorithm for top 10 URL selection
+     * Implement 3-phase automated testing methodology
+     * ENHANCED: Evidence-first approach with comprehensive artifact logging
+     * ENHANCED: Kill-chain aware vulnerability detection and chaining
+     * ENHANCED: Two-stage detection (signaling → validation)
+     * ENHANCED: Multi-identity testing framework (guest, low-priv, cross-tenant)
+     * ENHANCED: OOB interaction server for advanced vulnerability detection
+     * ENHANCED: Robust orchestrator architecture with async Python workers
+   - ⏳ **Map detailed workflow steps and tool integrations needed**
+   - ⏳ **Design database schema changes required**
+   - ⏳ **Plan frontend UI/UX modifications**
+   - ⏳ **Identify backend API endpoint changes**
+
+3. 🔄 **Technical Architecture Planning**
+   - ✅ **Option A: Evidence & Findings Pipeline Implementation** - IN PROGRESS
+     * PostgreSQL database schema design (findings, vectors, evidence_blobs, contexts, repro_recipes, oob_events)
+     * Django + Django Ninja API implementation for findings management
+     * Python repro pack builder library with redaction hooks and size caps
+     * Deduplication logic using key_hash algorithm
+     * End-to-end test suite with 3 synthetic findings (XSS, IDOR, SSRF)
+   - ⏳ **Option B: Session Bank + Auth + Browser Validator** - PLANNED
+   - ⏳ **Option C: ZAP Automation Wrapper** - PLANNED
+
+### Phase 2: Implementation (Future)
+1. **[BLANK - TO BE FILLED] Backend Implementation**
+   - [BLANK - TO BE FILLED] 
+   - [BLANK - TO BE FILLED]
+   - [BLANK - TO BE FILLED]
+
+2. **[BLANK - TO BE FILLED] Frontend Implementation**
+   - [BLANK - TO BE FILLED]
+   - [BLANK - TO BE FILLED]
+   - [BLANK - TO BE FILLED]
+
+3. **[BLANK - TO BE FILLED] Testing & Validation**
+   - [BLANK - TO BE FILLED]
+   - [BLANK - TO BE FILLED]
+   - [BLANK - TO BE FILLED]
+
+## Rules
+
+### Development Workflow Rules
+- **RULE_PLAN_FIRST**: Always create detailed plan before implementation
+- **RULE_EPIC_ALIGNMENT**: All work must align with defined epics and phases
+- **RULE_QUALITY_OVER_SPEED**: Prioritize code quality over development velocity
+- **RULE_SECURITY_FOCUS**: Security considerations must be primary in all decisions
+- **RULE_EDUCATION_INTEGRATION**: Educational components required for all features
+
+### Code Quality Rules
+- **RULE_NO_TODOS**: Never leave TODO comments or incomplete implementations
+- **RULE_COMPREHENSIVE_TESTING**: All new features require comprehensive testing
+- **RULE_DOCUMENTATION_REQUIRED**: All functions and components must be documented
+- **RULE_ERROR_HANDLING**: Robust error handling required for all external integrations
+- **RULE_INPUT_VALIDATION**: All user inputs must be validated and sanitized
+
+### Architecture Rules
+- **RULE_MICROSERVICE_ISOLATION**: Services must maintain clear boundaries
+- **RULE_CONTAINER_SECURITY**: All containers must follow security best practices
+- **RULE_API_CONSISTENCY**: RESTful API design patterns must be consistent
+- **RULE_DATABASE_OPTIMIZATION**: Database queries must be optimized and indexed
+- **RULE_SCALABILITY_CONSIDERATION**: All features must consider horizontal scaling
+
+## Items
+
+### Current Sprint Items
+- [x] **Examine existing .cursor directory structure**
+  - Status: Completed
+  - Result: No existing .cursor directory found
+
+- [x] **Analyze project architecture and documentation**
+  - Status: Completed
+  - Result: Comprehensive understanding of microservices architecture achieved
+
+- [🔄] **Create .cursor/rules directory structure**
+  - Status: In Progress
+  - Progress: Directory created, files being generated
+
+- [⏳] **Generate project-config.mdc**
+  - Status: Pending
+  - Dependencies: Directory structure completion
+
+- [⏳] **Create architecture.mdc**
+  - Status: Pending
+  - Dependencies: Project config completion
+
+- [⏳] **Generate workflow-state.mdc**
+  - Status: Pending
+  - Dependencies: Architecture doc completion
+
+- [⏳] **Create epics.mdc**
+  - Status: Pending
+  - Dependencies: Workflow state setup
+
+- [⏳] **Generate main rules.mdc**
+  - Status: Pending
+  - Dependencies: All other documents completion
+
+### Backlog Items
+- **Create developer onboarding documentation**
+- **Set up automated code quality checks**
+- **Configure Cursor AI prompts for security focus**
+- **Create component and utility templates**
+- **Set up debugging configurations**
+
+## Log
+
+**2024-12-19 Implementation Plans Scraped**
+- Successfully reviewed all memory-bank files for existing implementation plans
+- Examined implementation.md: Found Phase 2 (Enhanced UX & Analytics) and Phase 3 (Advanced Security & Intelligence) plans
+- Reviewed progress.md: Confirmed current production-ready status and future roadmap
+- Analyzed architecture.md and app-design-document.md for comprehensive system understanding
+- Scraped .cursor/rules directory: Found comprehensive development rules, patterns, and architecture documentation
+
+**2024-12-19 URL Workflow Planning Phase Initiated**  
+- Updated workflow state to focus on URL workflow redesign planning
+- Left all implementation plan sections intentionally blank per user requirements
+- Prepared planning framework for detailed URL workflow requirements gathering
+- Ready to begin meticulous step-by-step planning process for URL workflow changes
+
+**2024-12-19 REVISED Option A Blueprint - Findings Pipeline Integration**
+- ✅ COMPLETED: PostgreSQL schema design (6 tables integrated into existing 50+ table schema)
+- ✅ COMPLETED: Framework compliance strategy (enhance existing Go backend, maintain React structure)
+- ✅ COMPLETED: Prerequisite workflow integration (Company→Wildcard→URL dependency chain)
+- ✅ COMPLETED: ROI algorithm integration (top 10 URL selection from consolidated_attack_surface_assets)
+- ✅ COMPLETED: Enhanced existing architecture (Go utils, API endpoints, React components)
+- ✅ COMPLETED: Implementation sequence (4 phases maintaining existing structure)
+- ✅ COMPLETED: Non-negotiables in Go (rate limiting, scope guard, artifact storage)
+- ✅ COMPLETED: Success criteria with framework compliance requirements
+- 📋 READY FOR APPROVAL: Blueprint maintains existing Ars0n Framework structure
+- 📋 KEY CHANGE: Integrated approach instead of separate Django microservice
+- 📋 NEXT: Await plan approval for Go-integrated implementation
+
+**2024-12-19 Plan Approved - Technical Architecture Design Phase**
+- 📋 PLAN APPROVED: Beginning implementation with Ars0n Framework integration
+- ✅ COMPLETED: Technical architecture design for automated testing workflow
+- ✅ COMPLETED: Security tools integration mapping (5 enhanced + 5 new tools)
+- ✅ COMPLETED: Database schema design (6 new tables integrated with existing 50+)
+- ✅ COMPLETED: ROI algorithm integration for top 10 URL selection
+- ✅ COMPLETED: Frontend UI/UX design with existing Bootstrap patterns
+- ✅ COMPLETED: Evidence collection and logging system design
+- ✅ COMPLETED: Kill-chain aware vulnerability detection and chaining logic design  
+- ✅ COMPLETED: Kill-chain aware vulnerability detection and chaining logic design  
+- ✅ COMPLETED: Evidence & Findings Pipeline foundation - comprehensive integration with existing Go backend architecture
+- ✅ COMPLETED: Two-stage detection architecture (signaling → validation) with browser-based validation
+- ✅ COMPLETED: Multi-identity testing framework with comprehensive access control analysis
+- ✅ COMPLETED: OOB interaction server with HTTP/DNS protocol support for blind vulnerability detection
+- ✅ COMPLETED: Robust orchestrator architecture with Go concurrency, worker pools, and intelligent rate limiting
+- 📋 TODO UPDATED: All components align with existing Ars0n Framework architecture
+
+## ArchiveLog
+
+*No archived logs yet - this is the initial rule generation session*

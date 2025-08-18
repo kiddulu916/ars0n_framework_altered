@@ -1,0 +1,231 @@
+@import url('https://fonts.googleapis.com/css2?family=Quantico:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+:root {
+  --bs-font-sans-serif: 'Quantico', monospace; 
+  --bs-body-font-family: var(--bs-font-sans-serif);
+}
+
+body {
+  font-family: var(--bs-body-font-family) !important;
+}
+
+.btn.flex-fill {
+  flex: 1 1 0 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  min-width: 0;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 0, 0, 0.3);
+  border-radius: 50%;
+  border-top-color: #ff0000;
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.btn-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn, .card, .modal, .form-control {
+  font-family: 'Quantico', sans-serif !important;
+}
+
+.custom-input:focus {
+  border-color: red !important;
+  box-shadow: 0 0 0 0.25rem rgba(255, 0, 0, 0.25) !important;
+}
+
+body {
+  background-color: #202020; 
+}
+
+.modal-header .btn-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.accordion-button:focus {
+  box-shadow: 0 0 0 0.15rem rgba(255, 0, 0, 0.3); 
+}
+
+.accordion-button:not(.collapsed) {
+  background-color: #232323; 
+  color: #d10000;
+  box-shadow: 0 0 0 0.15rem rgba(255, 0, 0, 0.3); 
+}
+
+.accordion-button:focus:not(.collapsed) {
+  box-shadow: 0 0 0 0.2rem rgba(255, 0, 0, 0.5); 
+}
+
+.blinking {
+  animation: blinker 2s linear infinite;
+}
+
+@keyframes blinker {
+  50% {
+    opacity: 0;
+  }
+}
+
+.custom-checkbox .form-check-input {
+  appearance: none; /* Remove default styling */
+  width: 20px;
+  height: 20px;
+  border: 2px solid red;
+  border-radius: 5px;
+  background-color: transparent;
+  transition: all 0.3s ease;
+  outline: none;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+}
+
+.custom-checkbox .form-check-input:checked {
+  background-color: red;
+  border-color: red;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.8), 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.custom-checkbox .form-check-input:hover {
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.7);
+}
+
+.custom-checkbox .form-check-label {
+  margin-left: 10px;
+  font-size: 16px;
+  color: red;
+  text-shadow: 0 0 5px rgba(255, 0, 0, 0.7);
+  transition: color 0.3s ease;
+}
+
+.custom-checkbox .form-check-input:checked + .form-check-label {
+  color: #fff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+}
+
+.copy-button:hover {
+  opacity: 0.7;
+}
+
+.scan-id-container {
+  display: flex;
+  align-items: center;
+  display: inline;
+}
+
+.copy-button {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+/* Toast Styling */
+.toast-container {
+  transition: all 0.3s ease-in-out;
+}
+
+.custom-toast {
+  background: rgba(33, 33, 33, 0.95) !important;
+  border: 1px solid rgba(255, 0, 0, 0.2) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(10px);
+  animation: toastSlideUp 0.3s ease-out forwards;
+}
+
+.custom-toast .toast-header {
+  background: rgba(33, 33, 33, 0.95) !important;
+  border-bottom: 1px solid rgba(255, 0, 0, 0.2) !important;
+  border-radius: 8px 8px 0 0 !important;
+  padding: 0.75rem 1rem;
+}
+
+.custom-toast .toast-body {
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  letter-spacing: 0.3px;
+}
+
+.custom-toast.hide {
+  animation: toastSlideDown 0.3s ease-in forwards;
+}
+
+@keyframes toastSlideUp {
+  from {
+    transform: translateY(100px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toastSlideDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100px);
+    opacity: 0;
+  }
+}
+
+/* Success icon animation */
+.success-icon {
+  display: inline-block;
+  animation: successPop 0.3s ease-out;
+}
+
+@keyframes successPop {
+  0% {
+    transform: scale(0);
+  }
+  70% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #666;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #888;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #666 transparent;
+}
