@@ -1,7 +1,7 @@
 ---
-alwaysApply: true
+globs: client/**/*.*
+alwaysApply: false
 ---
-
 # Ars0n Framework v2 - React Frontend Patterns
 
 ## React Project Structure

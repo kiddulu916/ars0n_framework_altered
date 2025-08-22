@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, Table, Toast } from 'react-bootstrap';
+import { Card, Table, Toast, Button, Row, Col } from 'react-bootstrap';
+import URLWorkflowModal from '../modals/URLWorkflowModal';
+import FindingsDashboard from './FindingsDashboard';
 
 const ScopeTargetDetails = () => {
     const [scopeTarget, setScopeTarget] = useState(null);
@@ -9,6 +11,8 @@ const ScopeTargetDetails = () => {
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
     const [toastType, setToastType] = useState('success');
+    const [showURLWorkflowModal, setShowURLWorkflowModal] = useState(false);
+    const [activeTab, setActiveTab] = useState('overview');
     const { id } = useParams();
 
     useEffect(() => {
@@ -79,16 +83,134 @@ const ScopeTargetDetails = () => {
 
     return (
         <div>
-            <h3>Active Scope Target Details</h3>
-            <Card>
+            <div className="d-flex justify-content-between align-items-center mb-4">
+                <h3>Scope Target Details</h3>
+                <div className="d-flex gap-2">
+                    <Button 
+                        variant="primary" 
+                        onClick={() => setShowURLWorkflowModal(true)}
+                        disabled={scopeTarget?.type === 'URL'}
+                    >
+                        URL Workflow
+                    </Button>
+                </div>
+            </div>
+
+            <Card className="mb-4">
                 <Card.Body>
-                    <Card.Title>{scopeTarget.scope_target}</Card.Title>
-                    <Card.Text>
-                        Type: {scopeTarget.type}<br />
-                        Mode: {scopeTarget.mode}
-                    </Card.Text>
+                    <Row>
+                        <Col md={8}>
+                            <Card.Title>{scopeTarget.scope_target}</Card.Title>
+                            <Card.Text>
+                                <strong>Type:</strong> {scopeTarget.type}<br />
+                                <strong>Mode:</strong> {scopeTarget.mode}<br />
+                                <strong>Created:</strong> {new Date(scopeTarget.created_at).toLocaleString()}
+                            </Card.Text>
+                        </Col>
+                        <Col md={4}>
+                            <div className="d-flex flex-column gap-2">
+                                <Button 
+                                    variant={activeTab === 'overview' ? 'primary' : 'outline-primary'}
+                                    size="sm"
+                                    onClick={() => setActiveTab('overview')}
+                                >
+                                    Overview
+                                </Button>
+                                <Button 
+                                    variant={activeTab === 'workflows' ? 'primary' : 'outline-primary'}
+                                    size="sm"
+                                    onClick={() => setActiveTab('workflows')}
+                                >
+                                    Workflows
+                                </Button>
+                                <Button 
+                                    variant={activeTab === 'findings' ? 'primary' : 'outline-primary'}
+                                    size="sm"
+                                    onClick={() => setActiveTab('findings')}
+                                >
+                                    Security Findings
+                                </Button>
+                            </div>
+                        </Col>
+                    </Row>
                 </Card.Body>
             </Card>
+
+            {/* Tab Content */}
+            {activeTab === 'overview' && (
+                <Card>
+                    <Card.Header>
+                        <h5>Scope Target Overview</h5>
+                    </Card.Header>
+                    <Card.Body>
+                        <p>This is the overview of your scope target. Here you can see basic information and quick actions.</p>
+                        {scopeTarget.type !== 'URL' && (
+                            <div className="alert alert-info">
+                                <strong>Ready for URL Workflow:</strong> Once Company and Wildcard workflows are completed, 
+                                you can run the automated URL workflow to discover and test web application vulnerabilities.
+                            </div>
+                        )}
+                    </Card.Body>
+                </Card>
+            )}
+
+            {activeTab === 'workflows' && (
+                <Card>
+                    <Card.Header>
+                        <h5>Workflow Status</h5>
+                    </Card.Header>
+                    <Card.Body>
+                        <div className="row">
+                            <div className="col-md-4">
+                                <Card className="mb-3">
+                                    <Card.Body>
+                                        <Card.Title>Company Workflow</Card.Title>
+                                        <Card.Text>Asset discovery and enumeration</Card.Text>
+                                        <Button variant="outline-primary" size="sm">View Results</Button>
+                                    </Card.Body>
+                                </Card>
+                            </div>
+                            <div className="col-md-4">
+                                <Card className="mb-3">
+                                    <Card.Body>
+                                        <Card.Title>Wildcard Workflow</Card.Title>
+                                        <Card.Text>Subdomain enumeration and validation</Card.Text>
+                                        <Button variant="outline-primary" size="sm">View Results</Button>
+                                    </Card.Body>
+                                </Card>
+                            </div>
+                            <div className="col-md-4">
+                                <Card className="mb-3">
+                                    <Card.Body>
+                                        <Card.Title>URL Workflow</Card.Title>
+                                        <Card.Text>Automated vulnerability testing</Card.Text>
+                                        <Button 
+                                            variant="primary" 
+                                            size="sm"
+                                            onClick={() => setShowURLWorkflowModal(true)}
+                                            disabled={scopeTarget?.type === 'URL'}
+                                        >
+                                            Start Workflow
+                                        </Button>
+                                    </Card.Body>
+                                </Card>
+                            </div>
+                        </div>
+                    </Card.Body>
+                </Card>
+            )}
+
+            {activeTab === 'findings' && (
+                <FindingsDashboard scopeTargetId={id} />
+            )}
+
+            {/* URL Workflow Modal */}
+            <URLWorkflowModal 
+                show={showURLWorkflowModal}
+                handleClose={() => setShowURLWorkflowModal(false)}
+                scopeTargetId={id}
+                targetType={scopeTarget?.type}
+            />
 
             <Toast
                 show={showToast}

@@ -270,6 +270,29 @@ func main() {
 	// Live web servers count route
 	r.HandleFunc("/scope-target/{scope_target_id}/live-web-servers-count", getLiveWebServersCount).Methods("GET", "OPTIONS")
 
+	// URL Workflow routes
+	r.HandleFunc("/api/url-workflow/roi-urls/{scopeTargetId}", utils.GetROIScoredURLs).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/url-workflow/initiate/{scopeTargetId}", utils.InitiateURLWorkflow).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/url-workflow/status/{sessionId}", utils.GetURLWorkflowStatus).Methods("GET", "OPTIONS")
+
+	// Evidence Collection API endpoints
+	r.HandleFunc("/api/evidence/{findingId}", utils.StoreEvidence).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/evidence/{evidenceId}", utils.GetEvidence).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/evidence/finding/{findingId}", utils.ListEvidence).Methods("GET", "OPTIONS")
+
+	// Logging System API endpoints
+	r.HandleFunc("/api/logs", utils.GetLogs).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/logs/metrics/{sessionId}", utils.GetLogMetrics).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/logs/export/{sessionId}", utils.ExportLogs).Methods("GET", "OPTIONS")
+
+	// Findings Pipeline routes
+	r.HandleFunc("/api/findings", utils.CreateOrUpdateFinding).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/findings/{id}", utils.GetFinding).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/findings", utils.ListFindings).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/findings/{id}/status", utils.UpdateFindingStatus).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/findings/export", utils.ExportFindings).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/findings/{id}/reproduce", utils.GetReproInstructions).Methods("GET", "OPTIONS")
+
 	log.Println("API server started on :8443")
 	http.ListenAndServe(":8443", r)
 }

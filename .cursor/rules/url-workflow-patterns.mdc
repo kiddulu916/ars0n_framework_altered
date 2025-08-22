@@ -1,4 +1,476 @@
+---
+globs: server/**/*.*,client/**/*.*
+alwaysApply: false
+---
 # Ars0n Framework v2 - URL Workflow Patterns & Conventions
+
+## URL Workflow Overview
+
+The URL Workflow represents the third phase of the Ars0n Framework, focused on automated vulnerability testing and comprehensive evidence collection. This workflow transforms bug bounty hunting from manual testing to strategic, automated attack path analysis.
+
+## Core URL Workflow Patterns
+
+### 1. Workflow Dependency Chain
+```
+Company Workflow → Wildcard Workflow → URL Workflow
+      ↓                    ↓              ↓
+ASN Discovery      Subdomain Enum    Automated Testing
+Network Ranges     Live Detection    Evidence Collection
+Domain Discovery   ROI Scoring       Vulnerability Validation
+      ↓                    ↓              ↓
+consolidated_attack_surface_assets → Top 10 ROI URLs → Findings Pipeline
+```
+
+**Pattern Rules:**
+- URL Workflow MUST validate Company and Wildcard completion before execution
+- ROI-scored URLs from `consolidated_attack_surface_assets` provide target selection
+- Maximum 10 URLs selected based on highest ROI scores
+- Evidence collection is mandatory for every probe
+
+### 2. Three-Phase Architecture Pattern
+```go
+// Phase 1: Attack Surface Mapping
+type AttackSurfaceMapper struct {
+    WebCrawler      *GoSpiderIntegration  // Existing tool enhanced
+    DirectoryBrute  *FFufIntegration      // Existing tool enhanced  
+    JSExtractor     *SubdomainizerIntegration // Existing tool enhanced
+    APIDiscoverer   *CustomAPIScanner     // New capability
+    MethodEnum      *HTTPMethodTester     // New capability
+}
+
+// Phase 2: DAST Engine
+type DASTEngine struct {
+    NucleiRunner     *NucleiIntegration   // Existing tool enhanced
+    CustomTests      []VulnerabilityTest   // Custom test suite
+    BrowserValidator *PlaywrightValidator  // Browser-based validation
+    EvidenceCollector *EvidenceSystem     // Comprehensive evidence
+}
+
+// Phase 3: Targeted Testing
+type TargetedTester struct {
+    SQLiTester    *SQLMapIntegration     // New integration
+    XSSTester     *CustomXSSEngine       // Custom implementation
+    IDORTester    *IDORDIntegration      // New integration
+    SSRFTester    *CustomSSRFEngine      // Custom with OOB
+    AuthTester    *HydraIntegration      // New integration
+}
+```
+
+### 3. Evidence-First Pattern
+Every operation MUST produce comprehensive evidence:
+
+```go
+type EvidenceRequirement struct {
+    HAR          bool  // HTTP Archive files
+    Screenshots  bool  // Visual proof
+    DOM          bool  // DOM snapshots for XSS
+    PCAP         bool  // Network traffic (when applicable)
+    Logs         bool  // Tool execution logs
+    JSON         bool  // Structured findings
+}
+
+// Evidence collection pattern for every tool
+func (tool *AnyTool) Execute(target string) (*Finding, error) {
+    // 1. Initialize evidence collector
+    evidence := NewEvidenceCollector(tool.findingID)
+    
+    // 2. Execute tool with evidence capture
+    result, stdout, stderr := tool.run(target)
+    
+    // 3. Collect mandatory evidence
+    evidence.CollectLogs(stdout, stderr)
+    evidence.CollectHAR(tool.getHARData())
+    evidence.CollectScreenshot(target)
+    
+    // 4. Tool-specific evidence
+    if tool.needsDOM() {
+        evidence.CollectDOM(target)
+    }
+    
+    // 5. Store in findings pipeline
+    return tool.submitWithEvidence(result, evidence)
+}
+```
+
+### 4. Kill-Chain Aware Pattern
+Vulnerabilities are analyzed for chaining potential:
+
+```go
+type KillChainPattern struct {
+    PatternName      string              `json:"pattern_name"`
+    RequiredVulns    []VulnRequirement   `json:"required_vulns"`
+    OptionalVulns    []VulnRequirement   `json:"optional_vulns"`
+    BaseScore        int                 `json:"base_score"`
+    AttackVector     string              `json:"attack_vector"`
+    BusinessImpact   string              `json:"business_impact"`
+}
+
+// Predefined high-impact chains
+var HighImpactChains = []KillChainPattern{
+    {
+        PatternName: "SSRF_to_Cloud_Takeover",
+        RequiredVulns: []VulnRequirement{
+            {Category: "ssrf", Severity: "medium"},
+        },
+        BaseScore: 85,
+        AttackVector: "SSRF → Cloud Metadata → Credentials → Admin Access",
+    },
+    {
+        PatternName: "File_Upload_to_RCE", 
+        RequiredVulns: []VulnRequirement{
+            {Category: "file_upload", Severity: "medium"},
+        },
+        BaseScore: 95,
+        AttackVector: "File Upload → Webshell → RCE → System Compromise",
+    },
+}
+```
+
+### 5. Multi-Identity Testing Pattern
+All tests executed across multiple user contexts:
+
+```go
+type IdentityContext struct {
+    Type         string                 `json:"type"`        // "guest", "user", "admin"
+    Credentials  map[string]interface{} `json:"credentials"`
+    Tenant       string                 `json:"tenant"`      // Multi-tenant context
+    Session      map[string]interface{} `json:"session"`     // Session data
+}
+
+// Multi-identity execution pattern
+func (tester *VulnerabilityTester) TestAllIdentities(target string) []Finding {
+    identities := []IdentityContext{
+        {Type: "guest", Credentials: nil},
+        {Type: "user", Credentials: getTestUser()},
+        {Type: "admin", Credentials: getTestAdmin()},
+        {Type: "cross_tenant", Credentials: getOtherTenant()},
+    }
+    
+    var findings []Finding
+    for _, identity := range identities {
+        finding := tester.testWithIdentity(target, identity)
+        if finding != nil {
+            findings = append(findings, *finding)
+        }
+    }
+    
+    return findings
+}
+```
+
+## Database Schema Patterns
+
+### 1. URL Workflow Tables
+```sql
+-- Session management (extends existing auto_scan_sessions pattern)
+CREATE TABLE url_workflow_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scope_target_id UUID NOT NULL REFERENCES scope_targets(id) ON DELETE CASCADE,
+    prerequisite_workflows_complete BOOLEAN NOT NULL DEFAULT FALSE,
+    selected_urls JSONB NOT NULL,  -- Top 10 ROI URLs
+    current_phase VARCHAR(50) NOT NULL,
+    config_snapshot JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Central findings repository
+CREATE TABLE findings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key_hash VARCHAR(64) NOT NULL UNIQUE,  -- Deduplication key
+    url_workflow_session_id UUID REFERENCES url_workflow_sessions(id) ON DELETE CASCADE,
+    scope_target_id UUID NOT NULL REFERENCES scope_targets(id) ON DELETE CASCADE,
+    title VARCHAR(500) NOT NULL,
+    category VARCHAR(100) NOT NULL,  -- 'xss', 'idor', 'ssrf', etc.
+    severity VARCHAR(20) NOT NULL,   -- 'info', 'low', 'medium', 'high', 'critical'
+    signal JSONB NOT NULL,           -- Detection signal
+    status VARCHAR(20) DEFAULT 'open', -- 'open', 'triaged', 'confirmed', 'closed'
+    kill_chain_score INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Evidence storage
+CREATE TABLE evidence_blobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    finding_id UUID NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+    type VARCHAR(20) NOT NULL,       -- 'har', 'screenshot', 'dom', 'pcap', 'log'
+    path TEXT NOT NULL,              -- File system path
+    sha256 VARCHAR(64) NOT NULL,     -- Integrity hash
+    size BIGINT NOT NULL,            -- File size
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### 2. Deduplication Pattern
+```go
+// Consistent key generation for deduplication
+func GenerateKeyHash(category, urlTemplate, method string, paramKeys []string, identity, tenant string) string {
+    var components []string
+    
+    components = append(components, category)
+    components = append(components, normalizeURL(urlTemplate))
+    components = append(components, method)
+    
+    sort.Strings(paramKeys)
+    components = append(components, paramKeys...)
+    
+    components = append(components, identity)
+    if tenant != "" {
+        components = append(components, tenant)
+    }
+    
+    combined := strings.Join(components, "|")
+    hash := sha256.Sum256([]byte(combined))
+    return hex.EncodeToString(hash[:])
+}
+```
+
+## API Endpoint Patterns
+
+### 1. URL Workflow Management
+```go
+// Workflow initiation with prerequisite validation
+router.HandleFunc("/api/url-workflow/initiate/{scopeTargetId}", InitiateURLWorkflow).Methods("POST")
+router.HandleFunc("/api/url-workflow/status/{sessionId}", GetURLWorkflowStatus).Methods("GET")
+router.HandleFunc("/api/url-workflow/roi-urls/{scopeTargetId}", GetROIUrls).Methods("GET")
+
+// Implementation pattern
+func InitiateURLWorkflow(w http.ResponseWriter, r *http.Request) {
+    // 1. Validate prerequisites
+    if !arePrerequisitesComplete(scopeTargetID) {
+        http.Error(w, "Company and Wildcard workflows must complete first", http.StatusPreconditionFailed)
+        return
+    }
+    
+    // 2. Get ROI URLs
+    roiUrls, err := getTopROIUrls(scopeTargetID, 10)
+    if err != nil {
+        http.Error(w, "Failed to get ROI URLs", http.StatusInternalServerError)
+        return
+    }
+    
+    // 3. Create session
+    session := createURLWorkflowSession(scopeTargetID, roiUrls)
+    
+    // 4. Start async workflow
+    go executeURLWorkflow(session)
+    
+    json.NewEncoder(w).Encode(session)
+}
+```
+
+### 2. Findings Pipeline
+```go
+// Findings management with evidence integration
+router.HandleFunc("/api/findings", CreateOrUpdateFinding).Methods("POST")
+router.HandleFunc("/api/findings/{id}", GetFinding).Methods("GET")
+router.HandleFunc("/api/findings/{id}/status", UpdateFindingStatus).Methods("POST")
+router.HandleFunc("/api/findings/export", ExportFindings).Methods("GET")
+
+// Evidence management
+router.HandleFunc("/api/evidence/finding/{findingId}", GetFindingEvidence).Methods("GET")
+router.HandleFunc("/api/evidence/download/{evidenceId}", DownloadEvidence).Methods("GET")
+```
+
+## Tool Integration Patterns
+
+### 1. Enhanced Existing Tool Pattern
+```go
+// Enhance existing tools with findings integration
+// Example: Nuclei integration
+func enhanceNucleiWithFindings(scanID, target, sessionID string) error {
+    // 1. Initialize evidence collector
+    evidenceCollector := NewEvidenceCollector(dbPool)
+    findingID := uuid.New().String()
+    
+    // 2. Execute Nuclei with evidence capture
+    result, stdout, stderr := executeNuclei(target)
+    
+    // 3. Collect evidence
+    evidenceCollector.CollectLogs(findingID, stdout, stderr)
+    
+    // 4. Parse results and submit findings
+    for _, vuln := range parseNucleiOutput(result) {
+        if vuln.IsValid {
+            submitFindingWithEvidence(vuln, findingID, sessionID)
+        }
+    }
+    
+    return nil
+}
+```
+
+### 2. New Tool Integration Pattern
+```go
+// Pattern for integrating new tools (SQLMap, IDORD, etc.)
+type ToolIntegration struct {
+    ContainerName   string
+    Command         string
+    EvidenceCollector *EvidenceCollector
+    Parser          func([]byte) []Finding
+}
+
+func (ti *ToolIntegration) Execute(target string, sessionID string) error {
+    // 1. Generate finding ID
+    findingID := uuid.New().String()
+    
+    // 2. Execute in container
+    stdout, stderr, err := ti.executeInContainer(target)
+    
+    // 3. Collect evidence
+    ti.EvidenceCollector.CollectLogs(findingID, stdout, stderr)
+    
+    // 4. Parse and submit
+    findings := ti.Parser(stdout)
+    for _, finding := range findings {
+        submitFindingWithEvidence(finding, findingID, sessionID)
+    }
+    
+    return err
+}
+```
+
+## Frontend Integration Patterns
+
+### 1. URL Workflow UI Pattern
+```jsx
+// URL Workflow card with prerequisite validation
+const URLWorkflowCard = ({ targetId, enabled, roiUrls, onStart }) => {
+    const [status, setStatus] = useState('pending');
+    const [progress, setProgress] = useState(0);
+    
+    // Monitor workflow progress
+    useEffect(() => {
+        if (status === 'running') {
+            const interval = setInterval(async () => {
+                const workflowStatus = await fetchURLWorkflowStatus(sessionId);
+                setStatus(workflowStatus.status);
+                setProgress(workflowStatus.progress);
+                
+                if (workflowStatus.status === 'completed') {
+                    clearInterval(interval);
+                }
+            }, 2000);
+            
+            return () => clearInterval(interval);
+        }
+    }, [status, sessionId]);
+    
+    return (
+        <Card className={enabled ? "border-success" : "border-secondary"}>
+            <Card.Header>
+                <strong>🎯 URL Workflow - Automated Vulnerability Testing</strong>
+                {!enabled && <span className="text-muted"> (Prerequisites Required)</span>}
+            </Card.Header>
+            
+            <Card.Body>
+                {enabled ? (
+                    <div>
+                        <p>Top {roiUrls.length} ROI URLs selected for testing:</p>
+                        <ul>
+                            {roiUrls.slice(0, 3).map(url => (
+                                <li key={url.id}>{url.url} (Score: {url.roi_score})</li>
+                            ))}
+                        </ul>
+                        
+                        <ProgressBar now={progress} label={`${progress}%`} />
+                        
+                        <div className="mt-3">
+                            <Button onClick={onStart} disabled={status === 'running'}>
+                                {status === 'running' ? 'Running...' : 'Start Automated Testing'}
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    <p>Complete Company and Wildcard workflows to enable automated URL testing.</p>
+                )}
+            </Card.Body>
+        </Card>
+    );
+};
+```
+
+### 2. Findings Dashboard Pattern
+```jsx
+// Findings management with evidence visualization
+const FindingsDashboard = ({ targetId, sessionId }) => {
+    const [findings, setFindings] = useState([]);
+    const [selectedFinding, setSelectedFinding] = useState(null);
+    const [filter, setFilter] = useState({ severity: 'all', category: 'all' });
+    
+    // Load findings
+    useEffect(() => {
+        loadFindings();
+    }, [sessionId, filter]);
+    
+    const loadFindings = async () => {
+        const findingsData = await fetchFindings(sessionId, filter);
+        setFindings(findingsData);
+    };
+    
+    return (
+        <div className="findings-dashboard">
+            <h5>🔍 Vulnerability Findings</h5>
+            
+            {/* Filters */}
+            <Row className="mb-3">
+                <Col md={6}>
+                    <Form.Select value={filter.severity} onChange={(e) => setFilter({...filter, severity: e.target.value})}>
+                        <option value="all">All Severities</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </Form.Select>
+                </Col>
+                <Col md={6}>
+                    <Form.Select value={filter.category} onChange={(e) => setFilter({...filter, category: e.target.value})}>
+                        <option value="all">All Categories</option>
+                        <option value="xss">XSS</option>
+                        <option value="idor">IDOR</option>
+                        <option value="ssrf">SSRF</option>
+                        <option value="sqli">SQL Injection</option>
+                    </Form.Select>
+                </Col>
+            </Row>
+            
+            {/* Findings List */}
+            <Table striped hover>
+                <thead>
+                    <tr>
+                        <th>Severity</th>
+                        <th>Category</th>
+                        <th>Title</th>
+                        <th>Kill-Chain Score</th>
+                        <th>Evidence</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {findings.map(finding => (
+                        <FindingRow 
+                            key={finding.id}
+                            finding={finding}
+                            onSelect={setSelectedFinding}
+                        />
+                    ))}
+                </tbody>
+            </Table>
+            
+            {/* Finding Details Modal */}
+            {selectedFinding && (
+                <FindingDetailsModal
+                    finding={selectedFinding}
+                    onHide={() => setSelectedFinding(null)}
+                />
+            )}
+        </div>
+    );
+};
+```
+
+These patterns ensure consistent, scalable, and maintainable URL workflow implementation while integrating seamlessly with the existing Ars0n Framework architecture.# Ars0n Framework v2 - URL Workflow Patterns & Conventions
 
 ## URL Workflow Overview
 

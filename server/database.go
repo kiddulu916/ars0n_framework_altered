@@ -1101,9 +1101,276 @@ func createTables() {
 		`ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS burp_api_port INTEGER DEFAULT 1337;`,
 		`ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS burp_api_key TEXT DEFAULT '';`,
 
+		// URL Workflow Session Management
+		`CREATE TABLE IF NOT EXISTS url_workflow_sessions (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			session_id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+			scope_target_id UUID NOT NULL REFERENCES scope_targets(id) ON DELETE CASCADE,
+			selected_urls JSONB NOT NULL DEFAULT '[]',
+			status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'attack_surface_mapping', 'dast_scanning', 'targeted_testing', 'evidence_collection', 'completed', 'failed')),
+			current_phase VARCHAR(50) DEFAULT 'attack_surface_mapping',
+			phase_progress JSONB DEFAULT '{}',
+			results_summary JSONB DEFAULT '{}',
+			error_message TEXT,
+			started_at TIMESTAMP DEFAULT NOW(),
+			completed_at TIMESTAMP,
+			total_findings INTEGER DEFAULT 0,
+			total_evidence_items INTEGER DEFAULT 0,
+			auto_scan_session_id UUID REFERENCES auto_scan_sessions(id) ON DELETE SET NULL
+		);`,
+
+		// Core Findings Pipeline Tables
+		`CREATE TABLE IF NOT EXISTS findings (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			key_hash VARCHAR(64) NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			description TEXT,
+			category VARCHAR(50) NOT NULL CHECK (category IN ('xss', 'sqli', 'idor', 'ssrf', 'rce', 'lfi', 'rfi', 'csrf', 'xxe', 'nosqli', 'ldapi', 'ssti', 'auth_bypass', 'info_disclosure', 'misconfiguration', 'broken_access_control', 'security_misconfiguration', 'cryptographic_failure', 'injection', 'insecure_design', 'vulnerable_components', 'identification_failures', 'software_data_integrity', 'logging_monitoring', 'other')),
+			severity VARCHAR(20) NOT NULL CHECK (severity IN ('critical', 'high', 'medium', 'low', 'info')),
+			confidence VARCHAR(20) NOT NULL DEFAULT 'medium' CHECK (confidence IN ('high', 'medium', 'low')),
+			signal TEXT NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'investigating', 'confirmed', 'false_positive', 'duplicate', 'resolved')),
+			url TEXT NOT NULL,
+			method VARCHAR(10) NOT NULL DEFAULT 'GET',
+			parameters JSONB DEFAULT '{}',
+			vulnerability_class VARCHAR(100),
+			affected_component TEXT,
+			impact_description TEXT,
+			remediation_notes TEXT,
+			references TEXT[],
+			cvss_score DECIMAL(3,1),
+			cvss_vector TEXT,
+			cwe_id TEXT,
+			owasp_category TEXT,
+			manual_verification_required BOOLEAN DEFAULT false,
+			automated_reproduction_available BOOLEAN DEFAULT false,
+			url_workflow_session_id UUID REFERENCES url_workflow_sessions(id) ON DELETE CASCADE,
+			scope_target_id UUID NOT NULL REFERENCES scope_targets(id) ON DELETE CASCADE,
+			discovered_at TIMESTAMP DEFAULT NOW(),
+			last_updated TIMESTAMP DEFAULT NOW(),
+			last_verified TIMESTAMP,
+			verified_by TEXT,
+			tags TEXT[] DEFAULT '{}',
+			metadata JSONB DEFAULT '{}'
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS vectors (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			finding_id UUID NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+			vector_type VARCHAR(50) NOT NULL CHECK (vector_type IN ('payload', 'request', 'response', 'parameter', 'header', 'cookie', 'path', 'query', 'body', 'file_upload', 'websocket', 'api_endpoint')),
+			vector_data TEXT NOT NULL,
+			vector_metadata JSONB DEFAULT '{}',
+			execution_context TEXT,
+			validation_status VARCHAR(20) DEFAULT 'pending' CHECK (validation_status IN ('pending', 'validated', 'failed', 'skipped')),
+			validation_timestamp TIMESTAMP,
+			validation_result TEXT,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS evidence_blobs (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			finding_id UUID NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+			blob_type VARCHAR(50) NOT NULL CHECK (blob_type IN ('har_file', 'screenshot', 'dom_snapshot', 'pcap_file', 'request_response', 'video_recording', 'network_trace', 'console_logs', 'error_logs', 'source_code')),
+			file_path TEXT,
+			file_size_bytes BIGINT,
+			mime_type TEXT,
+			blob_data BYTEA,
+			blob_metadata JSONB DEFAULT '{}',
+			storage_type VARCHAR(20) DEFAULT 'filesystem' CHECK (storage_type IN ('filesystem', 'database', 's3', 'azure_blob')),
+			compression_type VARCHAR(20),
+			hash_sha256 TEXT,
+			is_redacted BOOLEAN DEFAULT false,
+			retention_expires_at TIMESTAMP,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS contexts (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			finding_id UUID NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+			context_type VARCHAR(50) NOT NULL CHECK (context_type IN ('authentication', 'authorization', 'session', 'user_role', 'tenant', 'environment', 'browser', 'device', 'location', 'time_based')),
+			context_name TEXT NOT NULL,
+			context_value TEXT,
+			context_metadata JSONB DEFAULT '{}',
+			is_active BOOLEAN DEFAULT true,
+			created_at TIMESTAMP DEFAULT NOW(),
+			UNIQUE(finding_id, context_type, context_name)
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS repro_recipes (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			finding_id UUID NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+			recipe_type VARCHAR(50) NOT NULL CHECK (recipe_type IN ('curl_command', 'playwright_script', 'burp_request', 'postman_collection', 'har_slice', 'manual_steps', 'automated_script')),
+			recipe_data TEXT NOT NULL,
+			recipe_metadata JSONB DEFAULT '{}',
+			execution_environment TEXT,
+			prerequisites TEXT[],
+			expected_outcome TEXT,
+			execution_time_estimate INTEGER,
+			success_criteria TEXT,
+			troubleshooting_notes TEXT,
+			is_validated BOOLEAN DEFAULT false,
+			validation_timestamp TIMESTAMP,
+			validation_notes TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			updated_at TIMESTAMP DEFAULT NOW()
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS oob_events (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			event_id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+			finding_id UUID REFERENCES findings(id) ON DELETE CASCADE,
+			event_type VARCHAR(50) NOT NULL CHECK (event_type IN ('dns_query', 'http_request', 'tcp_connection', 'smtp_connection', 'ftp_connection', 'ldap_query', 'file_system_access', 'command_execution')),
+			source_ip INET,
+			destination_host TEXT,
+			destination_port INTEGER,
+			protocol VARCHAR(20),
+			payload TEXT,
+			event_data JSONB DEFAULT '{}',
+			user_agent TEXT,
+			referrer TEXT,
+			timestamp TIMESTAMP DEFAULT NOW(),
+			is_associated BOOLEAN DEFAULT false,
+			association_confidence DECIMAL(3,2) DEFAULT 0.5,
+			url_workflow_session_id UUID REFERENCES url_workflow_sessions(id) ON DELETE SET NULL,
+			scope_target_id UUID REFERENCES scope_targets(id) ON DELETE CASCADE
+		);`,
+
+		// Kill Chain Analysis Tables
+		`CREATE TABLE IF NOT EXISTS kill_chain_analysis (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			session_id UUID NOT NULL REFERENCES url_workflow_sessions(id) ON DELETE CASCADE,
+			chain_type VARCHAR(50) NOT NULL CHECK (chain_type IN ('privilege_escalation', 'lateral_movement', 'data_exfiltration', 'persistence', 'defense_evasion', 'credential_access', 'discovery', 'collection', 'command_control', 'impact')),
+			chain_status VARCHAR(20) NOT NULL DEFAULT 'detected' CHECK (chain_status IN ('detected', 'validated', 'exploitable', 'mitigated')),
+			risk_score INTEGER NOT NULL CHECK (risk_score >= 0 AND risk_score <= 100),
+			attack_vector_summary TEXT,
+			business_impact TEXT,
+			technical_impact TEXT,
+			exploitability_rating VARCHAR(20) CHECK (exploitability_rating IN ('trivial', 'easy', 'moderate', 'hard', 'expert')),
+			attack_complexity VARCHAR(20) CHECK (attack_complexity IN ('low', 'medium', 'high')),
+			required_privileges VARCHAR(20) CHECK (required_privileges IN ('none', 'low', 'high')),
+			user_interaction VARCHAR(20) CHECK (user_interaction IN ('none', 'required')),
+			attack_surface VARCHAR(50),
+			potential_impact_areas TEXT[],
+			mitigation_priority VARCHAR(20) CHECK (mitigation_priority IN ('critical', 'high', 'medium', 'low')),
+			created_at TIMESTAMP DEFAULT NOW(),
+			updated_at TIMESTAMP DEFAULT NOW()
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS kill_chain_steps (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			kill_chain_id UUID NOT NULL REFERENCES kill_chain_analysis(id) ON DELETE CASCADE,
+			step_order INTEGER NOT NULL,
+			step_type VARCHAR(50) NOT NULL,
+			finding_id UUID REFERENCES findings(id) ON DELETE CASCADE,
+			step_description TEXT NOT NULL,
+			technical_details TEXT,
+			prerequisites TEXT[],
+			outcomes TEXT[],
+			confidence_level DECIMAL(3,2) NOT NULL DEFAULT 0.5 CHECK (confidence_level >= 0 AND confidence_level <= 1),
+			verification_status VARCHAR(20) DEFAULT 'pending' CHECK (verification_status IN ('pending', 'verified', 'failed', 'skipped')),
+			automation_possible BOOLEAN DEFAULT false,
+			manual_verification_required BOOLEAN DEFAULT true,
+			estimated_execution_time INTEGER,
+			created_at TIMESTAMP DEFAULT NOW(),
+			UNIQUE(kill_chain_id, step_order)
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS kill_chain_patterns (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			pattern_name VARCHAR(100) NOT NULL UNIQUE,
+			pattern_description TEXT,
+			attack_category VARCHAR(50) NOT NULL,
+			pattern_steps JSONB NOT NULL,
+			required_findings TEXT[],
+			optional_findings TEXT[],
+			minimum_severity VARCHAR(20) NOT NULL,
+			complexity_rating VARCHAR(20) NOT NULL,
+			success_criteria TEXT,
+			detection_logic TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			updated_at TIMESTAMP DEFAULT NOW()
+		);`,
+
+		// Orchestrator-specific tables for robust worker pool and rate limiting
+		`CREATE TABLE IF NOT EXISTS task_results (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			session_id UUID NOT NULL,
+			task_type VARCHAR(50) NOT NULL,
+			tool VARCHAR(50) NOT NULL,
+			target TEXT NOT NULL,
+			success BOOLEAN NOT NULL,
+			error TEXT,
+			duration BIGINT, -- Duration in milliseconds
+			completed_at TIMESTAMP DEFAULT NOW(),
+			findings_count INTEGER DEFAULT 0,
+			evidence_count INTEGER DEFAULT 0,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS worker_health (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			worker_id INTEGER NOT NULL,
+			is_alive BOOLEAN NOT NULL,
+			last_heartbeat TIMESTAMP NOT NULL,
+			tasks_completed BIGINT DEFAULT 0,
+			tasks_failed BIGINT DEFAULT 0,
+			memory_usage BIGINT DEFAULT 0, -- Memory usage in bytes
+			cpu_usage FLOAT DEFAULT 0.0, -- CPU usage percentage
+			active_task TEXT,
+			start_time TIMESTAMP NOT NULL,
+			total_execution_time BIGINT DEFAULT 0, -- Total execution time in milliseconds
+			average_task_time BIGINT DEFAULT 0, -- Average task time in milliseconds
+			updated_at TIMESTAMP DEFAULT NOW(),
+			UNIQUE(worker_id)
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS rate_limiter_stats (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			host VARCHAR(255) NOT NULL,
+			requests_allowed BIGINT DEFAULT 0,
+			requests_blocked BIGINT DEFAULT 0,
+			average_response BIGINT DEFAULT 0, -- Average response time in milliseconds
+			error_rate FLOAT DEFAULT 0.0,
+			circuit_state VARCHAR(20) DEFAULT 'closed',
+			backoff_until TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT NOW(),
+			UNIQUE(host)
+		);`,
+
+		// Enhanced target_urls with ROI integration
+		`ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS roi_score INTEGER DEFAULT 50;`,
+		`ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS roi_factors JSONB DEFAULT '{}';`,
+		`ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS roi_last_calculated TIMESTAMP;`,
+		`ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS url_workflow_eligible BOOLEAN DEFAULT false;`,
+		`ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS url_workflow_last_tested TIMESTAMP;`,
+		`ALTER TABLE target_urls ADD COLUMN IF NOT EXISTS url_workflow_findings_count INTEGER DEFAULT 0;`,
+
+		// Create logs table
+		`CREATE TABLE IF NOT EXISTS logs (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			session_id UUID REFERENCES url_workflow_sessions(id) ON DELETE CASCADE,
+			finding_id UUID REFERENCES findings(id) ON DELETE CASCADE,
+			workflow_stage VARCHAR(100),
+			log_level VARCHAR(20) NOT NULL CHECK (log_level IN ('debug', 'info', 'warn', 'error', 'fatal')),
+			log_category VARCHAR(50) NOT NULL CHECK (log_category IN ('system', 'workflow', 'tool', 'finding', 'evidence', 'auth', 'api', 'database', 'orchestrator', 'kill_chain')),
+			message TEXT NOT NULL,
+			log_data JSONB DEFAULT '{}',
+			error_details TEXT,
+			stack_trace TEXT,
+			execution_time_ms BIGINT,
+			source_function VARCHAR(200),
+			source_file VARCHAR(500),
+			source_line INTEGER,
+			user_agent TEXT,
+			ip_address INET,
+			created_at TIMESTAMP DEFAULT NOW()
+		);`,
+
 		// Create indexes for performance
 		`CREATE INDEX IF NOT EXISTS target_urls_url_idx ON target_urls (url);`,
 		`CREATE INDEX IF NOT EXISTS target_urls_scope_target_id_idx ON target_urls (scope_target_id);`,
+		`CREATE INDEX IF NOT EXISTS target_urls_roi_score_idx ON target_urls (roi_score DESC);`,
+		`CREATE INDEX IF NOT EXISTS target_urls_url_workflow_eligible_idx ON target_urls (url_workflow_eligible);`,
 		`CREATE INDEX IF NOT EXISTS idx_discovered_live_ips_scan_id ON discovered_live_ips(scan_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_live_web_servers_scan_id ON live_web_servers(scan_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_live_web_servers_ip_port ON live_web_servers(ip_address, port);`,
@@ -1121,6 +1388,80 @@ func createTables() {
 		`CREATE INDEX IF NOT EXISTS idx_consolidated_attack_surface_relationships_child ON consolidated_attack_surface_relationships(child_asset_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_consolidated_attack_surface_dns_records_asset_id ON consolidated_attack_surface_dns_records(asset_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_consolidated_attack_surface_metadata_asset_id ON consolidated_attack_surface_metadata(asset_id);`,
+
+		// URL Workflow specific indexes
+		`CREATE INDEX IF NOT EXISTS idx_url_workflow_sessions_scope_target_id ON url_workflow_sessions(scope_target_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_url_workflow_sessions_status ON url_workflow_sessions(status);`,
+		`CREATE INDEX IF NOT EXISTS idx_url_workflow_sessions_session_id ON url_workflow_sessions(session_id);`,
+
+		// Findings pipeline indexes
+		`CREATE INDEX IF NOT EXISTS idx_findings_key_hash ON findings(key_hash);`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_category ON findings(category);`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_status ON findings(status);`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_scope_target_id ON findings(scope_target_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_url_workflow_session_id ON findings(url_workflow_session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_discovered_at ON findings(discovered_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_findings_url ON findings(url);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_vectors_finding_id ON vectors(finding_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_vectors_vector_type ON vectors(vector_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_vectors_validation_status ON vectors(validation_status);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_evidence_blobs_finding_id ON evidence_blobs(finding_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_blobs_blob_type ON evidence_blobs(blob_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_blobs_storage_type ON evidence_blobs(storage_type);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_contexts_finding_id ON contexts(finding_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_contexts_context_type ON contexts(context_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_contexts_is_active ON contexts(is_active);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_repro_recipes_finding_id ON repro_recipes(finding_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_repro_recipes_recipe_type ON repro_recipes(recipe_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_repro_recipes_is_validated ON repro_recipes(is_validated);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_oob_events_finding_id ON oob_events(finding_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_oob_events_event_type ON oob_events(event_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_oob_events_timestamp ON oob_events(timestamp);`,
+		`CREATE INDEX IF NOT EXISTS idx_oob_events_is_associated ON oob_events(is_associated);`,
+		`CREATE INDEX IF NOT EXISTS idx_oob_events_scope_target_id ON oob_events(scope_target_id);`,
+
+		// Kill chain indexes
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_analysis_session_id ON kill_chain_analysis(session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_analysis_chain_type ON kill_chain_analysis(chain_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_analysis_risk_score ON kill_chain_analysis(risk_score DESC);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_steps_kill_chain_id ON kill_chain_steps(kill_chain_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_steps_finding_id ON kill_chain_steps(finding_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_steps_step_order ON kill_chain_steps(step_order);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_patterns_pattern_name ON kill_chain_patterns(pattern_name);`,
+		`CREATE INDEX IF NOT EXISTS idx_kill_chain_patterns_attack_category ON kill_chain_patterns(attack_category);`,
+
+		// Orchestrator indexes for performance optimization
+		`CREATE INDEX IF NOT EXISTS idx_task_results_session_id ON task_results(session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_results_tool ON task_results(tool);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_results_success ON task_results(success);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_results_completed_at ON task_results(completed_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_results_duration ON task_results(duration);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_worker_health_worker_id ON worker_health(worker_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_worker_health_is_alive ON worker_health(is_alive);`,
+		`CREATE INDEX IF NOT EXISTS idx_worker_health_last_heartbeat ON worker_health(last_heartbeat);`,
+		`CREATE INDEX IF NOT EXISTS idx_worker_health_updated_at ON worker_health(updated_at);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_rate_limiter_stats_host ON rate_limiter_stats(host);`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limiter_stats_circuit_state ON rate_limiter_stats(circuit_state);`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limiter_stats_error_rate ON rate_limiter_stats(error_rate);`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limiter_stats_updated_at ON rate_limiter_stats(updated_at);`,
+
+		// Logs indexes
+		`CREATE INDEX IF NOT EXISTS idx_logs_session_id ON logs(session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_finding_id ON logs(finding_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_log_level ON logs(log_level);`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_log_category ON logs(log_category);`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_workflow_stage ON logs(workflow_stage);`,
 	}
 
 	for _, query := range queries {

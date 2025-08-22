@@ -253,6 +253,58 @@ services:
     networks:
       - ars0n-network
 
+  playwright:
+    container_name: ars0n-framework-v2-playwright-1
+    build: ./docker/playwright
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    volumes:
+      - temp_data:/tmp
+    networks:
+      - ars0n-network
+
+  zap:
+    container_name: ars0n-framework-v2-zap-1
+    build: ./docker/zap
+    depends_on:
+      - api
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    volumes:
+      - temp_data:/tmp
+    networks:
+      - ars0n-network
+
+  oob-server:
+    container_name: ars0n-framework-v2-oob-server-1
+    build: ./docker/oob-server
+    depends_on:
+      - api
+    ports:
+      - "8888:8888"
+      - "5353:5353/udp"
+    restart: unless-stopped
+    networks:
+      - ars0n-network
+
 volumes:
   postgres_data:
   temp_data:

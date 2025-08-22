@@ -1,4 +1,152 @@
+---
+alwaysApply: true
+---
+
 # Ars0n Framework v2 - Project Configuration
+
+## Tech Stack
+
+### Core Architecture
+- **Architecture Pattern**: Microservices with Docker containerization
+- **Orchestration**: Docker Compose
+- **Database**: PostgreSQL
+- **API Design**: RESTful API architecture
+- **Security Focus**: Bug bounty hunting automation and education
+
+### Frontend Stack
+- **Framework**: React (Create React App)
+- **Styling**: Bootstrap CSS with Bootstrap Icons
+- **UI Components**: React Bootstrap
+- **Visualization**: React Force Graph for network diagrams
+- **Icons**: React Icons library
+- **Package Manager**: npm
+- **Build Tool**: Create React App (webpack)
+
+### Backend Stack
+- **Primary Language**: Go (Golang)
+- **API Framework**: Gorilla Mux router for advanced routing
+- **Database Driver**: pgx/v5 for high-performance PostgreSQL connectivity
+- **UUID Generation**: Google UUID library
+- **Docker Integration**: Docker socket mounting (/var/run/docker.sock)
+- **Tool Execution**: docker exec commands on running containers
+
+### AI Service
+- **Framework**: FastAPI (Python)
+- **AI Models**: T5-small via Transformers library
+- **Dependencies**: PyTorch, Accelerate, NumPy
+- **Integration**: RESTful API with health monitoring
+
+### Security Tools Integration
+- **Tool Containerization**: Each security tool in dedicated Docker container
+- **Supported Tools**: Amass, Nuclei, Subfinder, Httpx, GoSpider, Katana, and 20+ others
+- **Data Flow**: Tool output → Parser → PostgreSQL → Frontend visualization
+
+## Critical Patterns & Conventions
+
+### File Naming & Structure
+- **Go Files**: camelCase for functions, PascalCase for exported types
+- **React Components**: PascalCase (e.g., `ScopeTargetDetails.js`)
+- **Utility Files**: camelCase with descriptive suffixes (e.g., `amassEnumUtils.go`)
+- **Modal Components**: PascalCase with "Modal" suffix
+- **Docker Files**: Uppercase `Dockerfile` in tool-specific directories
+
+### Code Organization
+- **Backend**: 
+  - `/server` - Main Go backend
+  - `/server/utils` - Utility functions for each security tool
+  - `/server/models` - Data models and structures
+  - `/server/nuclei` - Specialized Nuclei integration
+- **Frontend**:
+  - `/client/src/components` - Reusable React components
+  - `/client/src/modals` - Modal dialog components
+  - `/client/src/utils` - Frontend utility functions
+  - `/client/src/data` - Static data and configurations
+- **Infrastructure**:
+  - `/docker` - Individual tool Dockerfiles
+  - Root `docker-compose.yml` - Service orchestration
+
+### API Conventions
+- **Endpoints**: RESTful design with clear resource naming
+- **HTTP Methods**: GET for retrieval, POST for creation/initiation, PUT for updates
+- **Response Format**: Consistent JSON structure with status, data, and error fields
+- **Error Handling**: Structured error responses with appropriate HTTP status codes
+
+### Database Conventions
+- **Tables**: Lowercase with underscores (e.g., `scope_targets`, `consolidated_attack_surface_assets`)
+- **Columns**: Lowercase with underscores
+- **Primary Keys**: UUID with `gen_random_uuid()` default
+- **Foreign Keys**: `{table_name}_id` pattern with CASCADE deletions
+- **Indexes**: Performance indexes on frequently queried columns
+- **Schema Size**: 50+ tables for comprehensive asset management
+- **Data Types**: JSONB for complex data, proper constraints
+
+### Security & Quality Standards
+- **Input Validation**: All user inputs validated and sanitized
+- **SQL Injection Prevention**: Prepared statements and parameterized queries
+- **Error Handling**: Never expose internal errors to end users
+- **Logging**: Structured logging with appropriate log levels
+- **Secrets Management**: Environment variables for API keys and sensitive data
+
+### Documentation Standards
+- **Code Comments**: Clear explanations for complex logic
+- **Function Documentation**: Go-style comments for exported functions
+- **API Documentation**: Inline documentation for all endpoints
+- **README Files**: Present in each major component directory
+
+### Testing Standards (For New Features)
+- **Go Backend**: Go standard testing package + Testify for assertions
+- **React Frontend**: React Testing Library + Jest for component testing
+- **Python AI Service**: pytest + FastAPI TestClient
+- **Integration Tests**: Docker Compose test environments
+- **E2E Testing**: Playwright for critical user journeys
+- **Performance Testing**: k6 or Artillery for load testing
+
+### Workflow Integration
+- **Three Core Workflows**: Company, Wildcard, URL
+- **Sequential Execution**: Enforced tool execution order
+- **Educational Components**: "Help Me Learn" features integrated throughout
+- **ROI Analysis**: Comprehensive scoring system for prioritization
+
+## Development Practices
+
+### Git Workflow
+- **Branch Naming**: `feature/`, `bugfix/`, `hotfix/` prefixes
+- **Commit Messages**: Conventional commits format
+- **Pull Requests**: Required for main branch changes
+
+### Code Quality
+- **Go**: gofmt, golint, go vet compliance
+- **JavaScript**: ESLint configuration with React best practices
+- **Docker**: Multi-stage builds and minimal base images
+- **Security**: Regular dependency updates and vulnerability scanning
+
+### Performance Considerations
+- **Concurrent Execution**: Go goroutines for parallel tool execution
+- **Database Optimization**: Proper indexing and query optimization
+- **Frontend Optimization**: Component lazy loading and code splitting
+- **Container Efficiency**: Minimal container sizes and efficient resource usage
+
+## Deployment & Environment
+
+### Container Strategy
+- **Base Images**: Alpine Linux for minimal footprint
+- **Security**: Non-root user execution where possible
+- **Networking**: Internal Docker networks for service communication
+- **Volumes**: Persistent data storage for database and scan results
+
+### Environment Configuration
+- **Development**: Local Docker Compose setup
+- **Production**: Container orchestration ready
+- **Configuration**: Environment variable based configuration
+- **Monitoring**: Structured logging for observability
+
+## Changelog
+
+- Updated documentation to reflect actual production codebase architecture (Go/Mux backend, React/Bootstrap frontend, FastAPI AI service)
+- Corrected database schema details (50+ tables, UUID primary keys, comprehensive asset management)
+- Updated Docker integration patterns (socket mounting vs DinD)
+- Added comprehensive testing framework recommendations for new features
+- Documented current production-ready status and enterprise-grade capabilities# Ars0n Framework v2 - Project Configuration
 
 ## Tech Stack
 

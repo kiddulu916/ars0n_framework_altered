@@ -1,7 +1,7 @@
 ---
-alwaysApply: true
+globs: server/**/*.*
+alwaysApply: false
 ---
-
 # Ars0n Framework v2 - Go Backend Patterns
 
 ## Go Code Organization

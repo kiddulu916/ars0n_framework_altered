@@ -1,7 +1,7 @@
 ---
-alwaysApply: true
+globs: server/database.go
+alwaysApply: false
 ---
-
 # Ars0n Framework v2 - Database Patterns & Conventions
 
 ## Database Schema Overview
